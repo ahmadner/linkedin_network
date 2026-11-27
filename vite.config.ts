@@ -26,6 +26,7 @@ export default defineConfig({
   base: "./",
   plugins: [contentSecurityPolicy()],
   worker: { format: "es" },
+  optimizeDeps: { entries: ["index.html"] },
   build: {
     target: "es2022",
     sourcemap: false,
