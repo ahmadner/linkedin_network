@@ -21,6 +21,7 @@
   --b: #ffefc2;
   --c: #fde2cf;
   --d: #e9ecf1;
+  --purple: #8a4fd6;
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 1px 2px rgb(15 23 42 / 6%), 0 1px 3px rgb(15 23 42 / 6%);
@@ -31,7 +32,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0e131d;
     --surface: #151c29;
     --surface-2: #1b2433;
@@ -54,10 +55,40 @@
     --b: #4a3d12;
     --c: #4d2f1e;
     --d: #2b3343;
+    --purple: #b48af0;
     --shadow: none;
     --shadow-lg: 0 12px 40px rgb(0 0 0 / 50%);
     color-scheme: dark;
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0e131d;
+  --surface: #151c29;
+  --surface-2: #1b2433;
+  --surface-3: #243045;
+  --text: #e7eaf0;
+  --muted: #9aa5b8;
+  --border: #283449;
+  --border-strong: #36445e;
+  --accent: #77a9f0;
+  --accent-hover: #9cc0f5;
+  --accent-soft: #1a2a44;
+  --accent-text: #0e131d;
+  --good: #7fd49a;
+  --good-bg: #163222;
+  --warn: #f1c55b;
+  --warn-bg: #382d11;
+  --bad: #ff9a92;
+  --bad-bg: #3b1a1c;
+  --a: #1d4a2a;
+  --b: #4a3d12;
+  --c: #4d2f1e;
+  --d: #2b3343;
+  --purple: #b48af0;
+  --shadow: none;
+  --shadow-lg: 0 12px 40px rgb(0 0 0 / 50%);
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -388,7 +419,7 @@ details[open] > summary { margin-block-end: .5rem; }
   .app { display: block; background: none; }
   .sidebar { position: sticky; inset-block-start: 0; z-index: 20; block-size: auto; flex-direction: row; align-items: center; gap: .5rem; padding: .5rem .75rem; border-inline-end: 0; border-block-end: 1px solid var(--border); overflow: hidden; }
   .brand { padding: 0; }
-  .brand > span:last-child, .side-status, .nav-title { display: none; }
+  .brand > span:nth-child(2), .side-status, .nav-title { display: none; }
   .brand-mark { inline-size: 32px; block-size: 32px; }
   .nav { display: flex; gap: .25rem; overflow-x: auto; flex: 1; scrollbar-width: none; }
   .nav::-webkit-scrollbar { display: none; }
@@ -451,7 +482,7 @@ details[open] > summary { margin-block-end: .5rem; }
 .col-idea { border-block-start: 3px solid var(--warn); }
 .col-draft { border-block-start: 3px solid var(--muted); }
 .col-ready { border-block-start: 3px solid var(--accent); }
-.col-scheduled { border-block-start: 3px solid #8a4fd6; }
+.col-scheduled { border-block-start: 3px solid var(--purple); }
 .col-published { border-block-start: 3px solid var(--good); }
 .column-empty { margin: 0; padding: .4rem; text-align: center; }
 .draft-cards { list-style: none; padding: 0; margin: 0; display: grid; gap: .45rem; }
@@ -478,7 +509,7 @@ details[open] > summary { margin-block-end: .5rem; }
 .st-idea { background: var(--warn-bg); }
 .st-draft { background: var(--surface-3); }
 .st-ready { background: var(--accent-soft); }
-.st-scheduled { background: color-mix(in srgb, #8a4fd6 22%, var(--surface)); }
+.st-scheduled { background: color-mix(in srgb, var(--purple) 22%, var(--surface)); }
 .st-published { background: var(--good-bg); }
 .cal-item:hover:not(:disabled) { background: var(--accent); color: var(--accent-text); }
 .cal-legend { flex-wrap: wrap; margin-block-start: .25rem; }
@@ -636,7 +667,7 @@ details[open] > summary { margin-block-end: .5rem; }
   .day-items { display: flex; flex-wrap: wrap; gap: 3px; }
   .cal-item { inline-size: 8px; block-size: 8px; padding: 0; border-radius: 50%; }
   .cal-item span { display: none; }
-  .cal-item.st-scheduled { background: #8a4fd6; }
+  .cal-item.st-scheduled { background: var(--purple); }
   .cal-item.st-ready { background: var(--accent); }
   .cal-item.st-idea { background: var(--warn); }
   .cal-item.st-draft { background: var(--muted); }
@@ -673,3 +704,8 @@ details[open] > summary { margin-block-end: .5rem; }
 .board-switch { flex-wrap: wrap; overflow: visible; }
 .overview-top > .card { block-size: auto; }
 .editor-side .li-image { max-block-size: 340px; object-fit: cover; }
+
+.brand { position: relative; }
+.theme-toggle { margin-inline-start: auto; inline-size: 2.1rem; block-size: 2.1rem; padding: 0; display: grid; place-items: center; border-radius: 999px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); flex: none; }
+.theme-toggle:hover:not(:disabled) { background: var(--surface-3); border-color: var(--accent); color: var(--accent); }
+.theme-toggle .icon { inline-size: 1.1rem; block-size: 1.1rem; }
