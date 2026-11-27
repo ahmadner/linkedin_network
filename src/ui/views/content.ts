@@ -8,6 +8,7 @@ import { ago, badge, card, emptyState, kpi, runAi, type Ctx } from "../context";
 import { field, fmtNumber, h, numberInput, select, textArea, textInput } from "../dom";
 import { icon } from "../icons";
 import { addDraft, findDraft, imageThumb, renderEditor } from "./editor";
+import { postsSyncCard } from "./postsSync";
 
 type Tab = "overview" | "board" | "calendar" | "posts" | "settings";
 
@@ -180,7 +181,7 @@ function renderOverview(ctx: Ctx): HTMLElement {
   const upcoming = drafts.filter((d) => d.scheduledFor >= today && d.scheduledFor <= week && d.status !== "published").length;
   const target = content.settings.postsPerWeek;
   const intro = content.posts.length === 0 && drafts.length === 0
-    ? emptyState("خلّينا نبلش بالمحتوى", "ارفع ملف الـ Export وفيه Shares.csv عشان أقرأ منشوراتك القديمة، أو ابدأ على طول: حلّل ملفك بالذكاء الاصطناعي أو اكتب أول منشور.", ["روح لصفحة البيانات", () => ctx.go("data")])
+    ? emptyState("خلّينا نبلش بالمحتوى", "اسحب منشوراتك القديمة بالإضافة أو من ملف الـ Export (Shares.csv)، أو ابدأ على طول: حلّل ملفك بالذكاء الاصطناعي أو اكتب أول منشور.", ["اسحب منشوراتي", () => switchTab(ctx, "posts")])
     : null;
   const months = stats.byMonth.slice(-12);
   return h("div", { class: "view" },
@@ -416,7 +417,7 @@ function postRow(ctx: Ctx, p: Post, compact = false): HTMLElement {
   return h("li", { class: "post" },
     h("div", { class: "post-head" },
       h("span", { class: "muted small" }, p.at.slice(0, 10)),
-      badge(p.origin === "export" ? "من الـ Export" : "يدوي", "muted-badge"),
+      badge(p.origin === "export" ? "من الـ Export" : p.origin === "sync" ? "من الإضافة" : "يدوي", "muted-badge"),
       p.media ? badge("ميديا") : null,
       p.sharedUrl ? badge("رابط") : null,
       p.url ? h("a", { href: p.url, target: "_blank", rel: "noopener noreferrer", class: "small" }, "افتح على LinkedIn") : null,
@@ -471,7 +472,8 @@ function renderPosts(ctx: Ctx): HTMLElement {
     h("button", { type: "button", "aria-pressed": String(ui.postSort === "new"), onclick: () => { ui.postSort = "new"; ctx.store.emit(); } }, "الأحدث"),
     h("button", { type: "button", "aria-pressed": String(ui.postSort === "top"), onclick: () => { ui.postSort = "top"; ctx.store.emit(); } }, "الأعلى تفاعل"));
   return h("div", { class: "view" },
-    posts.length === 0 ? emptyState("ما في منشورات لسا", "ارفع ملف الـ Export من LinkedIn وفيه Shares.csv، أو أضف منشوراتك القديمة بإيدك. كل ما زادت المنشورات، صار التحليل أدق.", ["روح لصفحة البيانات", () => ctx.go("data")]) : null,
+    posts.length === 0 ? emptyState("ما في منشورات لسا", "اسحبها بالإضافة، أو ارفع ملف الـ Export وفيه Shares.csv، أو أضفها بإيدك. كل ما زادت المنشورات، صار التحليل أدق.") : null,
+    postsSyncCard(ctx),
     addPostForm(ctx),
     posts.length ? h("section", { class: "card" },
       h("div", { class: "toolbar" }, h("div", { class: "search-box" }, icon("search"), search), sort, h("span", { class: "muted small" }, `${fmtNumber(filtered.length)} منشور`)),

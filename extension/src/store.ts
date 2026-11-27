@@ -1,19 +1,21 @@
-import type { CollectedConnection, CollectedMessage, JobStatus } from "./protocol";
+import type { CollectedConnection, CollectedMessage, CollectedPost, JobStatus, PostsJob } from "./protocol";
 
 const DB_NAME = "linkedin-network-sync";
-const STORES = { connections: "connections", messages: "messages", meta: "meta" } as const;
+const STORES = { connections: "connections", messages: "messages", posts: "posts", meta: "meta" } as const;
+type Part = "connections" | "messages" | "posts";
 type StoreName = (typeof STORES)[keyof typeof STORES];
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
 function db(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
+    const request = indexedDB.open(DB_NAME, 2);
     request.onupgradeneeded = () => {
       const d = request.result;
-      d.createObjectStore(STORES.connections, { keyPath: "slug" });
-      d.createObjectStore(STORES.messages, { keyPath: "id" });
-      d.createObjectStore(STORES.meta);
+      if (!d.objectStoreNames.contains(STORES.connections)) d.createObjectStore(STORES.connections, { keyPath: "slug" });
+      if (!d.objectStoreNames.contains(STORES.messages)) d.createObjectStore(STORES.messages, { keyPath: "id" });
+      if (!d.objectStoreNames.contains(STORES.posts)) d.createObjectStore(STORES.posts, { keyPath: "id" });
+      if (!d.objectStoreNames.contains(STORES.meta)) d.createObjectStore(STORES.meta);
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => {
@@ -46,11 +48,21 @@ export function putMessages(items: CollectedMessage[]): Promise<unknown> {
   });
 }
 
-export async function count(store: "connections" | "messages"): Promise<number> {
+export function putPosts(items: CollectedPost[]): Promise<unknown> {
+  return tx(STORES.posts, "readwrite", (s) => {
+    for (const item of items) s.put(item);
+  });
+}
+
+export function clearPosts(): Promise<unknown> {
+  return tx(STORES.posts, "readwrite", (s) => s.clear());
+}
+
+export async function count(store: Part): Promise<number> {
   return (await tx(store, "readonly", (s) => s.count())) ?? 0;
 }
 
-export async function page<T>(store: "connections" | "messages", offset: number, limit: number): Promise<T[]> {
+export async function page<T>(store: Part, offset: number, limit: number): Promise<T[]> {
   const d = await db();
   return new Promise((resolve, reject) => {
     const out: T[] = [];
@@ -86,4 +98,12 @@ export async function loadJob(): Promise<JobStatus | null> {
 
 export function saveJob(job: JobStatus): Promise<unknown> {
   return tx(STORES.meta, "readwrite", (s) => s.put(job, "job"));
+}
+
+export async function loadPostsJob(): Promise<PostsJob | null> {
+  return ((await tx(STORES.meta, "readonly", (s) => s.get("postsJob"))) as PostsJob | undefined) ?? null;
+}
+
+export function savePostsJob(job: PostsJob): Promise<unknown> {
+  return tx(STORES.meta, "readwrite", (s) => s.put(job, "postsJob"));
 }

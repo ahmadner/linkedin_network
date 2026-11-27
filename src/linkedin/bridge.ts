@@ -1,6 +1,7 @@
 import type {
-  CandidatesResponse, CollectedConnection, CollectedMessage, FetchResponse, HelloResponse, JobResponse, JobStatus, OutboxDraft, OutboxKind, OutboxResponse, Request, SyncOptions, SyncSince,
+  CandidatesResponse, CollectedConnection, CollectedMessage, CollectedPost, FetchResponse, HelloResponse, JobResponse, JobStatus, OutboxDraft, OutboxKind, OutboxResponse, PostsJob, PostsJobResponse, Request, SyncOptions, SyncSince,
 } from "../../extension/src/protocol";
+import { sanitizePost, type Post, type SyncedPost } from "../core/content";
 import targets from "../../extension/targets.json";
 import { sanitizeSyncPayload, type SyncPayload } from "../core/dataset";
 
@@ -55,7 +56,7 @@ export async function cancelSync(): Promise<void> {
   await send<JobResponse>({ type: "cancel" });
 }
 
-async function pullAll<T>(part: "connections" | "messages", onProgress: (done: number, total: number) => void): Promise<T[]> {
+async function pullAll<T>(part: "connections" | "messages" | "posts", onProgress: (done: number, total: number) => void): Promise<T[]> {
   const items: T[] = [];
   for (;;) {
     const r = await send<FetchResponse<T>>({ type: "fetch", part, offset: items.length, limit: PAGE });
@@ -89,4 +90,38 @@ export function outboxCancel(): Promise<OutboxResponse> {
 
 export function searchCandidates(): Promise<CandidatesResponse> {
   return send<CandidatesResponse>({ type: "candidates" });
+}
+
+export function supportsPosts(hello: HelloResponse | null): boolean {
+  return Boolean(hello?.features?.includes("posts"));
+}
+
+export async function startPostsSync(since: string): Promise<PostsJob | null> {
+  return (await send<PostsJobResponse>({ type: "posts-start", since })).job;
+}
+
+export async function postsSyncStatus(): Promise<PostsJob | null> {
+  return (await send<PostsJobResponse>({ type: "posts-status" })).job;
+}
+
+export async function cancelPostsSync(): Promise<void> {
+  await send<PostsJobResponse>({ type: "posts-cancel" });
+}
+
+const URN = /^urn:li:(activity|share|ugcPost):\d+$/;
+
+export function toSyncedPost(raw: CollectedPost): SyncedPost | null {
+  const n = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0);
+  const id = typeof raw.id === "string" && URN.test(raw.id) ? raw.id : "";
+  const url = typeof raw.url === "string" && /^https:\/\/www\.linkedin\.com\/feed\/update\//.test(raw.url) ? raw.url : "";
+  const metrics = { impressions: n(raw.impressions), reactions: n(raw.reactions), comments: n(raw.comments), reposts: n(raw.reposts) };
+  const post: Post | null = sanitizePost({ id, at: raw.at, text: raw.text, url, sharedUrl: "", media: raw.media, origin: "sync", metrics });
+  if (!post) return null;
+  const keys = (Array.isArray(raw.urns) ? raw.urns : []).filter((u): u is string => typeof u === "string" && URN.test(u)).slice(0, 10);
+  return { post, keys };
+}
+
+export async function collectPosts(onProgress: (label: string) => void): Promise<SyncedPost[]> {
+  const raw = await pullAll<CollectedPost>("posts", (d, t) => onProgress(`${d}/${t}`));
+  return raw.map(toSyncedPost).filter((p): p is SyncedPost => p !== null);
 }

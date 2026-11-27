@@ -1,6 +1,6 @@
 import { asNumber, asRecord, asString, asStringList } from "./profile";
 
-export type PostOrigin = "export" | "manual";
+export type PostOrigin = "export" | "manual" | "sync";
 export type DraftStatus = "idea" | "draft" | "ready" | "scheduled" | "published";
 export type PostFormat = "text" | "image" | "carousel" | "poll" | "video" | "article";
 export type ContentLang = "ar" | "en";
@@ -122,6 +122,7 @@ export interface ContentState {
   strategy: ContentStrategy | null;
   images: Record<string, ImageMeta>;
   settings: ContentSettings;
+  postsSyncedAt: string;
 }
 
 export const IMAGE_MODELS = ["gpt-image-1", "gpt-image-1-mini", "dall-e-3"];
@@ -133,6 +134,7 @@ export function emptyContent(): ContentState {
     drafts: [],
     strategy: null,
     images: {},
+    postsSyncedAt: "",
     settings: { postsPerWeek: 2, defaultLang: "ar", pillars: [], hashtags: [], imageModel: IMAGE_MODELS[0]! },
   };
 }
@@ -368,6 +370,47 @@ export function mergeExportPosts(current: Post[], imported: Post[]): Post[] {
   return [...kept, ...imported.map((p) => ({ ...p, metrics: p.metrics ?? known(p) }))].sort((a, b) => b.at.localeCompare(a.at));
 }
 
+export interface SyncedPost {
+  post: Post;
+  keys: string[];
+}
+
+export interface SyncMerge {
+  posts: Post[];
+  added: number;
+  updated: number;
+}
+
+function sameMetrics(a: PostMetrics | null, b: PostMetrics | null): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+export function mergeSyncedPosts(current: Post[], synced: SyncedPost[]): SyncMerge {
+  const posts = [...current];
+  const byKey = new Map<string, number>();
+  const index = (p: Post, i: number): void => {
+    for (const key of [p.id, postKey(p.url), textKey(p.text)]) if (key && !byKey.has(key)) byKey.set(key, i);
+  };
+  posts.forEach(index);
+  let added = 0;
+  let updated = 0;
+  for (const { post, keys } of synced) {
+    const match = [post.id, ...keys, postKey(post.url), textKey(post.text)].map((k) => (k ? byKey.get(k) : undefined)).find((i) => i !== undefined);
+    if (match === undefined) {
+      posts.push(post);
+      index(post, posts.length - 1);
+      added += 1;
+      continue;
+    }
+    const old = posts[match]!;
+    const metrics = post.metrics ? { ...post.metrics, impressions: Math.max(post.metrics.impressions, old.metrics?.impressions ?? 0) } : old.metrics;
+    const next: Post = { ...old, text: old.text || post.text, url: old.url || post.url, at: old.at || post.at, media: old.media || post.media, metrics };
+    if (!sameMetrics(old.metrics, next.metrics) || next.text !== old.text || next.url !== old.url) updated += 1;
+    posts[match] = next;
+  }
+  return { posts: posts.sort((a, b) => b.at.localeCompare(a.at)), added, updated };
+}
+
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const oneOf = <T extends string>(value: unknown, options: readonly T[], fallback: T): T => (options.includes(value as T) ? (value as T) : fallback);
 const LANGS: ContentLang[] = ["ar", "en"];
@@ -391,7 +434,7 @@ export function sanitizePost(v: unknown): Post | null {
     url: safeUrl(asString(r.url, 500)),
     sharedUrl: safeUrl(asString(r.sharedUrl, 1000)),
     media: asString(r.media, 1000),
-    origin: r.origin === "manual" ? "manual" : "export",
+    origin: r.origin === "manual" || r.origin === "sync" ? r.origin : "export",
     metrics: metrics(r.metrics),
   };
 }
@@ -496,6 +539,7 @@ export function sanitizeContent(v: unknown): ContentState {
     drafts: list(r.drafts).map(sanitizeDraft).filter((d): d is Draft => d !== null),
     strategy: sanitizeStrategy(r.strategy),
     images,
+    postsSyncedAt: asString(r.postsSyncedAt, 40),
     settings: {
       postsPerWeek: Math.min(14, Math.max(1, Math.round(asNumber(s.postsPerWeek, base.settings.postsPerWeek)))),
       defaultLang: oneOf(s.defaultLang, LANGS, "ar"),

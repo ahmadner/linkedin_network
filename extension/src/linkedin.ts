@@ -252,7 +252,7 @@ export function findGraphqlUrls(resourceUrls: string[]): QueryIds {
   return { conversations, messages };
 }
 
-function replaceVariable(url: string, name: string, value: string): string {
+export function replaceVariable(url: string, name: string, value: string): string {
   const pattern = new RegExp(`(${name}:)([^,)]+)`);
   if (pattern.test(url)) return url.replace(pattern, `$1${value}`);
   const marker = "variables=(";
