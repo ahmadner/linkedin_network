@@ -5,7 +5,7 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
-  "img-src 'self' data: https://media.licdn.com",
+  "img-src 'self' data: blob: https://media.licdn.com",
   "font-src 'self'",
   "connect-src 'self' https://api.openai.com",
   "worker-src 'self'",

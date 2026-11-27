@@ -8,7 +8,7 @@ import { rowsCsv, rowsWorkbook, XLSX_TYPE, type Column } from "../io/excel";
 import { download, h } from "./dom";
 import type { Store } from "./store";
 
-export type ViewId = "home" | "data" | "contacts" | "companies" | "dashboard" | "opportunities" | "outreach" | "profile" | "ai" | "quality";
+export type ViewId = "home" | "data" | "contacts" | "companies" | "dashboard" | "opportunities" | "outreach" | "content" | "profile" | "ai" | "quality";
 
 export interface Ctx {
   store: Store;
@@ -44,6 +44,13 @@ export function createBusy(host: HTMLElement, toast: Ctx["toast"]): Ctx["busy"] 
 
 export function card(title: string, ...children: Array<Node | string | null | false>): HTMLElement {
   return h("section", { class: "card" }, h("h2", {}, title), ...children);
+}
+
+export function kpi(label: string, value: string, note: string, onClick?: () => void, tone = ""): HTMLElement {
+  const body = [h("span", {}, label), h("strong", {}, value), h("small", {}, note)];
+  return onClick
+    ? h("button", { type: "button", class: `kpi clickable ${tone}`, onclick: onClick }, ...body)
+    : h("div", { class: `kpi ${tone}` }, ...body);
 }
 
 export function badge(text: string, tone = ""): HTMLElement {

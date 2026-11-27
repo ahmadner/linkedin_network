@@ -2,6 +2,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { parse, stringify } from "yaml";
 import { DEFAULT_MODEL } from "../ai/openai";
 import { emptyDataset, repairMessages, sanitizePhotos } from "../core/dataset";
+import { emptyContent, sanitizeContent, type ContentState } from "../core/content";
 import { STAGES, TONES } from "../core/conversation";
 import { normalizeTags } from "../core/tags";
 import { TEMPLATE_IDS, type TemplateId } from "../core/templates";
@@ -30,6 +31,18 @@ export interface AppState {
   tracking: Record<string, Tracking>;
   log: LogEntry[];
   ai: AiState;
+  content: ContentState;
+}
+
+export interface StoredImage {
+  id: string;
+  type: string;
+  bytes: Uint8Array;
+}
+
+export interface StateBundle {
+  state: AppState;
+  images: StoredImage[];
 }
 
 export function emptyState(): AppState {
@@ -40,6 +53,7 @@ export function emptyState(): AppState {
     tracking: {},
     log: [],
     ai: { model: DEFAULT_MODEL, messages: {}, classifications: {}, templates: {}, suggestions: null, analyses: {} },
+    content: emptyContent(),
   };
 }
 
@@ -52,7 +66,17 @@ const FILES = {
   tracking: "tracking.yaml",
   ai: "ai.yaml",
   photos: "photos.yaml",
+  content: "content.yaml",
 } as const;
+
+const IMAGE_DIR = "images/";
+const IMAGE_TYPES: Record<string, string> = { webp: "image/webp", jpg: "image/jpeg", png: "image/png" };
+const IMAGE_ID = /^[a-z]+_[a-z0-9]{1,40}$/;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+function imageExt(type: string): string {
+  return Object.entries(IMAGE_TYPES).find(([, t]) => t === type)?.[0] ?? "png";
+}
 
 const YAML_OPTIONS = { lineWidth: 0, minContentWidth: 0 } as const;
 
@@ -60,7 +84,7 @@ function yaml(value: unknown): Uint8Array {
   return strToU8(stringify(value, YAML_OPTIONS));
 }
 
-export function exportStateZip(state: AppState): Uint8Array {
+export function exportStateZip(state: AppState, images: StoredImage[] = []): Uint8Array {
   const d = state.dataset;
   const meta = {
     format: STATE_FORMAT,
@@ -81,6 +105,8 @@ export function exportStateZip(state: AppState): Uint8Array {
       [FILES.tracking]: yaml({ tracking: state.tracking, log: state.log }),
       [FILES.ai]: yaml(state.ai),
       [FILES.photos]: yaml(d.photos),
+      [FILES.content]: yaml(state.content),
+      ...Object.fromEntries(images.filter((img) => state.content.images[img.id] && IMAGE_ID.test(img.id)).map((img) => [`${IMAGE_DIR}${img.id}.${imageExt(img.type)}`, [img.bytes, { level: 0 }]])),
     },
     { level: 6 },
   );
@@ -257,14 +283,28 @@ interface Sections {
   tracking: unknown;
   ai: unknown;
   photos: unknown;
+  content: unknown;
 }
 
-export function importStateZip(bytes: Uint8Array): AppState {
+function imageEntry(path: string): { id: string; type: string } | null {
+  const at = path.lastIndexOf(IMAGE_DIR);
+  if (at < 0) return null;
+  const match = /^([^/.]+)\.([a-z]+)$/.exec(path.slice(at + IMAGE_DIR.length));
+  const type = match ? IMAGE_TYPES[match[2]!] : undefined;
+  return match && type && IMAGE_ID.test(match[1]!) ? { id: match[1]!, type } : null;
+}
+
+export function readStateZip(bytes: Uint8Array): StateBundle {
   const names = new Set<string>(Object.values(FILES));
-  const entries = unzipSync(bytes, { filter: (f) => names.has(f.name.split("/").pop() ?? "") });
+  const entries = unzipSync(bytes, { filter: (f) => names.has(f.name.split("/").pop() ?? "") || (imageEntry(f.name) !== null && f.originalSize <= MAX_IMAGE_BYTES) });
   const files: Record<string, Uint8Array> = {};
-  for (const [path, data] of Object.entries(entries)) files[path.split("/").pop() ?? path] = data;
-  return sanitizeState({
+  const found: StoredImage[] = [];
+  for (const [path, data] of Object.entries(entries)) {
+    const image = imageEntry(path);
+    if (image) found.push({ ...image, bytes: data });
+    else files[path.split("/").pop() ?? path] = data;
+  }
+  const state = sanitizeState({
     meta: readYaml(files, FILES.meta),
     profile: readYaml(files, FILES.profile),
     connections: readYaml(files, FILES.connections),
@@ -273,7 +313,17 @@ export function importStateZip(bytes: Uint8Array): AppState {
     tracking: readYaml(files, FILES.tracking),
     ai: readYaml(files, FILES.ai),
     photos: readYaml(files, FILES.photos),
+    content: readYaml(files, FILES.content),
   });
+  const images = found.filter((img) => state.content.images[img.id]);
+  const present = new Set(images.map((img) => img.id));
+  for (const id of Object.keys(state.content.images)) if (!present.has(id)) delete state.content.images[id];
+  for (const d of state.content.drafts) if (d.imageId && !present.has(d.imageId)) d.imageId = "";
+  return { state, images };
+}
+
+export function importStateZip(bytes: Uint8Array): AppState {
+  return readStateZip(bytes).state;
 }
 
 export function reviveState(raw: unknown): AppState | null {
@@ -289,6 +339,7 @@ export function reviveState(raw: unknown): AppState | null {
     tracking: { tracking: r.tracking, log: r.log },
     ai: r.ai,
     photos: dataset.photos,
+    content: r.content,
   });
 }
 
@@ -342,6 +393,7 @@ function sanitizeState(sections: Sections): AppState {
     suggestions: aiSuggestions(ai.suggestions),
     analyses: recordOf(ai.analyses, conversationAnalysis),
   };
+  state.content = sanitizeContent(sections.content);
   return state;
 }
 

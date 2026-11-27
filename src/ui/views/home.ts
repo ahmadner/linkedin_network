@@ -3,7 +3,7 @@ import { conversationIndex } from "../../core/conversations";
 import { suggestPeople } from "../../core/opportunities";
 import { replyStats } from "../../core/stats";
 import type { Contact } from "../../core/types";
-import { ago, avatar, awaitingMe, linkedinLinks, type Ctx } from "../context";
+import { ago, avatar, awaitingMe, kpi, linkedinLinks, type Ctx } from "../context";
 import { fmtNumber, h } from "../dom";
 import { icon, type IconName } from "../icons";
 import { openContact, showContacts, type Preset } from "./contacts";
@@ -45,13 +45,6 @@ function taskCard(ctx: Ctx, title: string, iconName: IconName, hint: string, tas
     h("p", { class: "muted small" }, hint),
     tasks.length === 0 ? h("p", { class: "empty-line" }, empty) : h("ul", { class: "tasks" }, tasks.map((t) => taskItem(ctx, t))),
   );
-}
-
-function kpi(label: string, value: string, note: string, onClick?: () => void, tone = ""): HTMLElement {
-  const body = [h("span", {}, label), h("strong", {}, value), h("small", {}, note)];
-  return onClick
-    ? h("button", { type: "button", class: `kpi clickable ${tone}`, onclick: onClick }, ...body)
-    : h("div", { class: `kpi ${tone}` }, ...body);
 }
 
 function setupStep(done: boolean, title: string, text: string, action: [string, () => void], optional = false): HTMLElement {

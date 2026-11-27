@@ -1,0 +1,9 @@
+Date,ShareLink,ShareCommentary,SharedUrl,MediaUrl,Visibility
+2026-11-18 08:15:22,https://www.linkedin.com/feed/update/urn%3Ali%3Ashare%3A7260000000000000003/,"""بعد 3 سنين شغل على أنظمة Backend، هاي أهم 5 دروس تعلمتها عن الـ Caching:
+1. قيس قبل ما تحسّن
+2. الـ TTL مش حل سحري
+
+شو أهم درس تعلمته انت؟ #Java #SpringBoot #Backend""",,https://media.licdn.com/dms/image/sample-1,MEMBER_NETWORK
+2026-10-02 17:40:05,https://www.linkedin.com/feed/update/urn%3Ali%3Ashare%3A7250000000000000002/,"Excited to share that our team cut API latency by 40% after moving hot paths to Redis. Small changes, big wins. #Redis #Performance",,,PUBLIC
+2026-07-21 10:05:00,https://www.linkedin.com/feed/update/urn%3Ali%3Ashare%3A7240000000000000001/,"Great read on event-driven architecture.",https://example.com/event-driven,,PUBLIC
+2026-07-21 10:05:00,https://www.linkedin.com/feed/update/urn%3Ali%3Ashare%3A7240000000000000001/,"Great read on event-driven architecture.",https://example.com/event-driven,,PUBLIC

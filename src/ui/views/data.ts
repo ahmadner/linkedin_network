@@ -1,4 +1,5 @@
 import type { JobStatus } from "../../../extension/src/protocol";
+import { mergeExportPosts } from "../../core/content";
 import { mergeExport, mergeSync } from "../../core/dataset";
 import { cleanProfileUrl } from "../../core/text";
 import { sanitizeProfile } from "../../core/profile";
@@ -6,7 +7,8 @@ import { profileGaps } from "../../core/messages";
 import type { LogEntry, MeProfile } from "../../core/types";
 import { filesFrom, importExportInBackground, loadStateInBackground, saveStateInBackground } from "../../io/background";
 import { decodeBytes } from "../../io/csv";
-import { clearStoredState } from "../../io/db";
+import { clearStoredState, readImages, replaceImages } from "../../io/db";
+import { forgetAllImageUrls } from "../../io/images";
 import { readTrackingWorkbook, trackingTemplateWorkbook, XLSX_TYPE } from "../../io/excel";
 import { LOG_FIELDS, logTemplateCsv, parseLogCsv, parseProfileJson, PROFILE_FIELDS, profileTemplateJson, TRACKING_FIELDS, type FieldGuide, type ImportIssue } from "../../io/imports";
 import { emptyState, sanitizeTracking, stateFileName } from "../../io/state";
@@ -53,8 +55,10 @@ async function importExportFiles(ctx: Ctx, files: File[]): Promise<void> {
   ctx.store.update((s) => {
     s.dataset = mergeExport(s.dataset, imported);
     s.profile.me = fillEmptyProfile(s.profile.me, imported.suggestedProfile);
+    if (imported.posts.length > 0) s.content.posts = mergeExportPosts(s.content.posts, imported.posts);
   });
-  ctx.toast(`تم: ${fmtNumber(imported.connections.length)} شخص، ${fmtNumber(imported.messages.length)} رسالة، ${fmtNumber(imported.invitations.length)} دعوة`);
+  const posts = imported.posts.length > 0 ? `، ${fmtNumber(imported.posts.length)} منشور` : "";
+  ctx.toast(`تم: ${fmtNumber(imported.connections.length)} شخص، ${fmtNumber(imported.messages.length)} رسالة، ${fmtNumber(imported.invitations.length)} دعوة${posts}`);
 }
 
 async function finishSync(ctx: Ctx, job: JobStatus): Promise<void> {
@@ -360,26 +364,33 @@ export function renderData(ctx: Ctx, rerender: () => void): HTMLElement {
   });
 
   const saveState = async (): Promise<void> => {
-    const bytes = await ctx.busy("تجهيز ملف الحفظ…", () => saveStateInBackground(ctx.store.state));
+    const state = ctx.store.state;
+    const bytes = await ctx.busy("تجهيز ملف الحفظ…", async () => saveStateInBackground(state, await readImages(Object.keys(state.content.images))));
     if (bytes) download(stateFileName(), new Uint8Array(bytes), "application/zip");
   };
   const loadState = async (): Promise<void> => {
     const [file] = await pickFiles(".zip");
     if (!file) return;
-    const state = await ctx.busy("قراءة ملف الحفظ…", async () => loadStateInBackground(new Uint8Array(await file.arrayBuffer())));
-    if (!state) return;
-    ctx.store.replace(state);
+    const bundle = await ctx.busy("قراءة ملف الحفظ…", async () => {
+      const loaded = await loadStateInBackground(new Uint8Array(await file.arrayBuffer()));
+      await replaceImages(loaded.images);
+      forgetAllImageUrls();
+      return loaded;
+    });
+    if (!bundle) return;
+    ctx.store.replace(bundle.state);
     ctx.toast("رجعت كل البيانات من ملف الحفظ");
   };
   const reset = async (): Promise<void> => {
     if (!window.confirm("رح تنمسح كل البيانات من هاد المتصفح. نزّلت ملف الحفظ قبل؟")) return;
     await clearStoredState();
+    forgetAllImageUrls();
     ctx.store.replace(emptyState());
     ctx.toast("انمسحت البيانات المحلية");
   };
 
   const exportCard = card(ctx.store.hasData ? "ملف الـ Export من LinkedIn" : "١. أول تحميل: ملف الـ Export من LinkedIn",
-      h("p", {}, "أسرع طريقة لسحب كل الأشخاص وكل الرسائل دفعة وحدة. من LinkedIn: Settings & Privacy ← Data privacy ← Get a copy of your data، واختار Connections و Messages و Invitations."),
+      h("p", {}, "أسرع طريقة لسحب كل الأشخاص وكل الرسائل دفعة وحدة. من LinkedIn: Settings & Privacy ← Data privacy ← Get a copy of your data، واختار Connections و Messages و Invitations، و Shares عشان تنقرأ منشوراتك بقسم المحتوى."),
       dropZone,
       ctx.store.state.dataset.importMeta.exportLabel ? h("p", { class: "muted small" }, `آخر ملف: ${ctx.store.state.dataset.importMeta.exportLabel}`) : null,
   );
@@ -389,7 +400,7 @@ export function renderData(ctx: Ctx, rerender: () => void): HTMLElement {
     ctx.store.hasData ? stats(ctx) : null,
     h("div", { class: "cards-grid" }, sources),
     card(ctx.store.hasData ? "الحفظ والاسترجاع" : "٣. الحفظ والاسترجاع",
-      h("p", {}, "كل شي بينحفظ تلقائيًا بهاد المتصفح. للنقل لجهاز ثاني أو كنسخة احتياطية، نزّل ملف zip فيه ملف YAML لكل نوع بيانات (الأشخاص، الرسائل، الدعوات، بروفايلك، المتابعة، الذكاء الاصطناعي، ونقطة آخر مزامنة)، وارفعه لاحقًا عشان تكمل من حيث وقفت."),
+      h("p", {}, "كل شي بينحفظ تلقائيًا بهاد المتصفح. للنقل لجهاز ثاني أو كنسخة احتياطية، نزّل ملف zip فيه ملف YAML لكل نوع بيانات (الأشخاص، الرسائل، الدعوات، بروفايلك، المتابعة، الذكاء الاصطناعي، المحتوى وصوره، ونقطة آخر مزامنة)، وارفعه لاحقًا عشان تكمل من حيث وقفت."),
       h("div", { class: "row" },
         h("button", { type: "button", onclick: () => void saveState() }, "تنزيل ملف الحفظ (zip)"),
         h("button", { type: "button", class: "secondary", onclick: () => void loadState() }, "رفع ملف حفظ"),

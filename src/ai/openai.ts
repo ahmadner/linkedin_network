@@ -52,20 +52,22 @@ async function errorFrom(response: Response): Promise<OpenAiError> {
   return new OpenAiError(`${hint}: ${detail}`, response.status, code);
 }
 
-async function complete(key: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
+export async function postJson(key: string, path: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
   const body = JSON.stringify(payload);
   for (let attempt = 1; ; attempt += 1) {
-    const response = await fetch(`${API}/chat/completions`, { method: "POST", headers: headers(key), body, signal });
-    if (response.ok) {
-      const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-      return data.choices?.[0]?.message?.content ?? "";
-    }
+    const response = await fetch(`${API}${path}`, { method: "POST", headers: headers(key), body, signal });
+    if (response.ok) return (await response.json()) as unknown;
     const error = await errorFrom(response);
     const retryable = (response.status === 429 && error.code !== "insufficient_quota") || response.status >= 500;
     if (!retryable || attempt >= MAX_ATTEMPTS) throw error;
     const after = Number(response.headers.get("retry-after"));
     await sleep(Number.isFinite(after) && after > 0 ? after * 1000 : 1000 * 2 ** attempt, signal);
   }
+}
+
+async function complete(key: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
+  const data = (await postJson(key, "/chat/completions", payload, signal)) as { choices?: Array<{ message?: { content?: string } }> };
+  return data.choices?.[0]?.message?.content ?? "";
 }
 
 async function completeJson(cfg: AiConfig, model: string, system: string, user: string): Promise<unknown> {
