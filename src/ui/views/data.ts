@@ -8,7 +8,7 @@ import { cell, decodeBytes, tableFrom } from "../../io/csv";
 import { clearStoredState } from "../../io/db";
 import { readPreviousTracking } from "../../io/excel";
 import { emptyState, sanitizeLog, sanitizeTracking, stateFileName } from "../../io/state";
-import { cancelSync, clearExtensionData, collectResult, detectExtension, startSync, syncStatus } from "../../linkedin/bridge";
+import { cancelSync, clearExtensionData, collectResult, detectExtension, LOCAL_TOOL, startSync, syncStatus } from "../../linkedin/bridge";
 import { badge, card, type Ctx } from "../context";
 import { append, download, fmtNumber, h, pickFiles } from "../dom";
 
@@ -131,15 +131,17 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
     h("div", { class: "row" },
       h("button", { type: "button", disabled: !installed || running, onclick: () => void start() }, "مزامنة الآن"),
       running ? h("button", { type: "button", class: "secondary", onclick: () => void cancelSync().then(rerender) }, "إيقاف") : null,
-      h("a", { class: "button secondary", href: "./linkedin-network-extension.zip", download: true }, "تحميل الـ Extension"),
+      LOCAL_TOOL ? null : h("a", { class: "button secondary", href: "./linkedin-network-extension.zip", download: true }, "تحميل الـ Extension"),
     ),
     jobLine(lastJob),
     installed ? null : h("details", { class: "help" },
       h("summary", {}, "طريقة التركيب (مرة وحدة)"),
       h("ol", {},
-        h("li", {}, "حمّل ملف الـ Extension وفك الضغط عنه بمجلد ثابت."),
+        LOCAL_TOOL
+          ? h("li", {}, "شغّل npm run extension:local بمجلد المشروع.")
+          : h("li", {}, "حمّل ملف الـ Extension وفك الضغط عنه بمجلد ثابت."),
         h("li", {}, "افتح chrome://extensions وفعّل Developer mode."),
-        h("li", {}, "اضغط Load unpacked واختار المجلد."),
+        h("li", {}, LOCAL_TOOL ? "اضغط Load unpacked واختار المجلد dist-extension/local." : "اضغط Load unpacked واختار المجلد."),
         h("li", {}, "تأكد إنك مسجّل دخول على linkedin.com بنفس المتصفح، وارجع حدّث هاي الصفحة."),
       ),
     ),

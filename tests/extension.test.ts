@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import targets from "../extension/targets.json";
 import { conversationsPageUrl, findGraphqlUrls, messagesUrl, parseConnections, parseConversations, parseMe, parseMessages } from "../extension/src/linkedin";
 
 describe("extension parsers", () => {
@@ -44,5 +46,24 @@ describe("extension parsers", () => {
     expect(conversationsPageUrl(urls.conversations, 99)).toContain("variables=(lastUpdatedBefore:99,mailboxUrn:");
     expect(conversationsPageUrl(conversationsPageUrl(urls.conversations, 99), 42)).toContain("lastUpdatedBefore:42,");
     expect(messagesUrl(urls.messages, "urn:li:msg_conversation:(y,2)")).toContain("conversationUrn:urn%3Ali%3Amsg_conversation%3A%28y%2C2%29)");
+  });
+});
+
+describe("extension targets", () => {
+  const idOf = (key: string) =>
+    [...createHash("sha256").update(Buffer.from(key, "base64")).digest("hex").slice(0, 32)]
+      .map((c) => String.fromCharCode(97 + parseInt(c, 16)))
+      .join("");
+
+  it("gives each target its own id that matches its key", () => {
+    expect(idOf(targets.local.key)).toBe(targets.local.id);
+    expect(idOf(targets.production.key)).toBe(targets.production.id);
+    expect(targets.local.id).not.toBe(targets.production.id);
+  });
+
+  it("keeps local hosts out of the production target", () => {
+    expect(new URL(targets.production.toolUrl).protocol).toBe("https:");
+    expect(targets.production.origins).toEqual([]);
+    expect(new URL(targets.local.toolUrl).hostname).toBe("localhost");
   });
 });

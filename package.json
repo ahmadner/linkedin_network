@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build && node scripts/build-extension.mjs dist",
-    "build:extension": "node scripts/build-extension.mjs",
+    "build": "tsc --noEmit && vite build && node scripts/build-extension.mjs production dist",
+    "extension:local": "node scripts/build-extension.mjs local",
+    "extension:production": "node scripts/build-extension.mjs production",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

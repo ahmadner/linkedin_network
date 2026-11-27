@@ -1,7 +1,11 @@
 import type { CollectedConnection, CollectedMessage, FetchResponse, HelloResponse, JobResponse, JobStatus, Request, SyncOptions, SyncSince } from "../../extension/src/protocol";
+import targets from "../../extension/targets.json";
 import { sanitizeSyncPayload, type SyncPayload } from "../core/dataset";
 
-export const EXTENSION_ID = "ngigmbaokhakbkfekjickdaedaihfjka";
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+export const LOCAL_TOOL = LOCAL_HOSTS.has(globalThis.location?.hostname ?? "");
+const EXTENSION_ID = LOCAL_TOOL ? targets.local.id : targets.production.id;
 const PAGE = 1000;
 
 interface PageRuntime {
