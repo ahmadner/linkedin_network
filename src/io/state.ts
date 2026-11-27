@@ -1,5 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { parse, stringify } from "yaml";
+import { DEFAULT_MODEL } from "../ai/openai";
 import { emptyDataset } from "../core/dataset";
 import { asNumber, asRecord, asString, asStringList, defaultProfile, DEFAULT_COMPANY_OVERRIDES, sanitizeOverrides, sanitizeProfile } from "../core/profile";
 import type {
@@ -9,7 +10,6 @@ import type {
 
 export const STATE_FORMAT = "linkedin-network-tool";
 export const STATE_VERSION = 1;
-export const DEFAULT_MODEL = "gpt-5-mini";
 
 export interface AiState {
   model: string;

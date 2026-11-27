@@ -2,13 +2,7 @@ import { FUNCTION_LABELS, INDUSTRY_LABELS, SENIORITY_LABELS } from "../core/clas
 import { clip } from "../core/messages";
 import { asRecord, asString } from "../core/profile";
 import type { AiClassification, AiMessage, Contact, MessageSet, Profile, StoredMessage } from "../core/types";
-import { chatJson } from "./openai";
-
-export interface AiConfig {
-  key: string;
-  model: string;
-  signal?: AbortSignal;
-}
+import { chatJson, type AiConfig } from "./openai";
 
 const MESSAGE_SYSTEM = [
   "You write LinkedIn outreach messages for the user described in the input.",
@@ -71,11 +65,12 @@ export async function generateMessages(contact: Contact, profile: Profile, histo
     },
     limits: { note_chars: noteLimit, message_chars: messageLimit },
   };
-  const raw = asRecord(await chatJson({ key: cfg.key, model: cfg.model, system: MESSAGE_SYSTEM, user: JSON.stringify(input), signal: cfg.signal }));
+  const { data, model } = await chatJson(cfg, MESSAGE_SYSTEM, JSON.stringify(input));
+  const raw = asRecord(data);
   const pick = (k: keyof MessageSet, limit: number): string => clip(asString(raw[k], 8000).trim(), limit);
   const result: AiMessage = {
     mode: contact.mode,
-    model: cfg.model,
+    model,
     generatedAt: new Date().toISOString(),
     note_ar: pick("note_ar", noteLimit),
     note_en: pick("note_en", noteLimit),
@@ -102,7 +97,8 @@ export async function classifyBatch(contacts: Contact[], cfg: AiConfig): Promise
     allowed: { seniority: SENIORITY_LABELS, function: FUNCTION_LABELS, industry: INDUSTRY_LABELS },
     items: contacts.map((c, i) => ({ id: String(i), title: c.positionClean, company: c.companyRaw })),
   };
-  const raw = asRecord(await chatJson({ key: cfg.key, model: cfg.model, system: CLASSIFY_SYSTEM, user: JSON.stringify(input), signal: cfg.signal }));
+  const { data, model } = await chatJson(cfg, CLASSIFY_SYSTEM, JSON.stringify(input));
+  const raw = asRecord(data);
   const items = Array.isArray(raw.items) ? raw.items : [];
   const out: Record<string, AiClassification> = {};
   const allowedSeniority = new Set<string>(SENIORITY_LABELS);
@@ -112,7 +108,7 @@ export async function classifyBatch(contacts: Contact[], cfg: AiConfig): Promise
     const r = asRecord(item);
     const contact = contacts[Number(asString(r.id))];
     if (!contact) continue;
-    const entry: AiClassification = { model: cfg.model };
+    const entry: AiClassification = { model };
     const s = asString(r.seniority);
     const f = asString(r.function);
     const ind = asString(r.industry);

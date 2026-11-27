@@ -1,12 +1,19 @@
 import { CLASSIFY_BATCH, classifyBatch, generateMessages, needsClassification } from "../../ai/features";
 import { getApiKey, isKeyRemembered, looksLikeKey, setApiKey } from "../../ai/key";
-import { mapLimit, verifyKey } from "../../ai/openai";
+import { DEFAULT_MODEL, isFatalError, mapLimit, verifyModel, type AiConfig } from "../../ai/openai";
 import { nameKey } from "../../core/text";
 import type { Contact, StoredMessage } from "../../core/types";
-import { card, type Ctx } from "../context";
+import { aiErrorText, card, keepFallbackModel, type Ctx } from "../context";
 import { field, fmtNumber, h } from "../dom";
 
-const MODELS = ["gpt-5-mini", "gpt-5", "gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"];
+const MODELS: Array<[string, string]> = [
+  [DEFAULT_MODEL, "سريع ورخيص، وما بدّه توثيق (الافتراضي)"],
+  ["gpt-4.1", "أدق، وأغلى"],
+  ["gpt-4o-mini", "الأرخص"],
+  ["gpt-4o", "قوي، وأغلى"],
+  ["gpt-5-mini", "ممكن يحتاج توثيق للمنظمة"],
+  ["gpt-5", "ممكن يحتاج توثيق للمنظمة"],
+];
 let controller: AbortController | null = null;
 
 function historyFor(messages: StoredMessage[], c: Contact): StoredMessage[] {
@@ -14,28 +21,32 @@ function historyFor(messages: StoredMessage[], c: Contact): StoredMessage[] {
   return messages.filter((m) => [m.from, ...m.to].some((p) => (c.slug && p.slug === c.slug) || (!p.slug && key && nameKey(p.name) === key)));
 }
 
-async function runBatch<T>(ctx: Ctx, label: string, items: T[], work: (item: T, signal: AbortSignal) => Promise<void>, concurrency: number): Promise<void> {
+async function runBatch<T>(ctx: Ctx, label: string, items: T[], work: (item: T, cfg: AiConfig) => Promise<void>, concurrency: number, key: string): Promise<void> {
   controller = new AbortController();
-  const signal = controller.signal;
+  const from = ctx.store.state.ai.model;
+  const cfg: AiConfig = { key, model: from, signal: controller.signal };
   let done = 0;
   let failed = 0;
-  let firstError = "";
+  let firstError: unknown = null;
+  let fatal: unknown = null;
   await ctx.busy(label, async (progress) => {
     progress(`0 / ${items.length}`);
     const results = await mapLimit(items, concurrency, async (item) => {
-      await work(item, signal);
+      await work(item, cfg);
       done += 1;
       progress(`${done} / ${items.length}`);
-    }, signal);
+    }, cfg.signal);
     for (const r of results) {
-      if (r?.status === "rejected") {
-        failed += 1;
-        firstError ||= r.reason instanceof Error ? r.reason.message : String(r.reason);
-      }
+      if (r.status !== "rejected") continue;
+      failed += 1;
+      firstError ??= r.reason;
+      if (isFatalError(r.reason)) fatal ??= r.reason;
     }
   }, () => controller?.abort());
   controller = null;
-  if (failed > 0) ctx.toast(`${failed} طلب فشل: ${firstError}`, "error");
+  keepFallbackModel(ctx, from, cfg);
+  if (fatal) ctx.toast(`وقفنا بعد ${done} من ${items.length}. ${aiErrorText(fatal, cfg.model)}`, "error");
+  else if (failed > 0) ctx.toast(`${failed} طلب فشل: ${aiErrorText(firstError, cfg.model)}`, "error");
   else if (done > 0) ctx.toast(`تم: ${done}`);
 }
 
@@ -43,25 +54,28 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
   const state = ctx.store.state;
   const keyInput = h("input", { type: "password", autocomplete: "off", spellcheck: "false", placeholder: "sk-...", value: getApiKey() });
   const remember = h("input", { type: "checkbox", checked: isKeyRemembered() });
-  const model = h("input", { type: "text", list: "models", value: state.ai.model });
-  const modelList = h("datalist", { id: "models" }, MODELS.map((m) => h("option", { value: m })));
+  const options = MODELS.some(([id]) => id === state.ai.model) ? MODELS : [...MODELS, [state.ai.model, ""] as [string, string]];
+  const model = h("select", {}, options.map(([id, note]) => h("option", { value: id, selected: id === state.ai.model }, note ? `${id}: ${note}` : id)));
+  model.addEventListener("change", () => ctx.store.update((s) => (s.ai.model = model.value), { recompute: false }));
 
   const saveKey = (): void => {
     const value = keyInput.value.trim();
     if (value && !looksLikeKey(value)) return ctx.toast("المفتاح لازم يبلش بـ sk-", "error");
     setApiKey(value, remember.checked);
-    ctx.store.update((s) => (s.ai.model = model.value.trim() || s.ai.model), { recompute: false });
     ctx.toast(value ? "انحفظ المفتاح بهاد المتصفح بس" : "انمسح المفتاح");
   };
   const test = async (): Promise<void> => {
     saveKey();
     const key = getApiKey();
     if (!key) return;
+    const chosen = ctx.store.state.ai.model;
     const ok = await ctx.busy("فحص المفتاح…", async () => {
-      await verifyKey(key, state.ai.model);
+      await verifyModel(key, chosen).catch((error: unknown) => {
+        throw new Error(aiErrorText(error, chosen));
+      });
       return true;
     });
-    if (ok) ctx.toast(`المفتاح شغّال والموديل ${state.ai.model} متاح`);
+    if (ok) ctx.toast(`المفتاح شغّال والموديل ${chosen} متاح لحسابك`);
   };
 
   const hasData = ctx.store.hasData;
@@ -80,10 +94,10 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
     if (!key || unknown.length === 0) return;
     const batches: Contact[][] = [];
     for (let i = 0; i < unknown.length; i += CLASSIFY_BATCH) batches.push(unknown.slice(i, i + CLASSIFY_BATCH));
-    await runBatch(ctx, "تصنيف الأشخاص المجهولين…", batches, async (batch, signal) => {
-      const result = await classifyBatch(batch, { key, model: state.ai.model, signal });
+    await runBatch(ctx, "تصنيف الأشخاص المجهولين…", batches, async (batch, cfg) => {
+      const result = await classifyBatch(batch, cfg);
       ctx.store.update((s) => Object.assign(s.ai.classifications, result));
-    }, 2);
+    }, 2, key);
     rerender();
   };
 
@@ -92,10 +106,10 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
     if (!key || priority.length === 0) return;
     if (!window.confirm(`رح نبعت ${priority.length} طلب لـ OpenAI على حسابك. نكمل؟`)) return;
     const messages = state.dataset.messages;
-    await runBatch(ctx, "كتابة رسائل لأولوية A…", priority, async (c, signal) => {
-      const result = await generateMessages(c, state.profile, historyFor(messages, c), { key, model: state.ai.model, signal });
+    await runBatch(ctx, "كتابة رسائل لأولوية A…", priority, async (c, cfg) => {
+      const result = await generateMessages(c, state.profile, historyFor(messages, c), cfg);
       ctx.store.update((s) => (s.ai.messages[c.id] = result));
-    }, 3);
+    }, 3, key);
     rerender();
   };
 
@@ -112,7 +126,7 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
       h("p", {}, "المفتاح بيضل بهاد المتصفح بس، وبينبعت لـ api.openai.com مباشرة وما بيروح لأي مكان ثاني. ما بينحفظ بملف الحفظ ولا بالـ repo."),
       h("div", { class: "form-grid" },
         field("API key", keyInput),
-        field("الموديل", h("div", {}, model, modelList), "gpt-5-mini سريع ورخيص ونتائجه ممتازة للرسائل"),
+        field("الموديل", model, "إذا الموديل مش متاح لحسابك، الأداة بتكمل لحالها بـ " + DEFAULT_MODEL),
       ),
       h("label", { class: "check" }, remember, " تذكّر المفتاح على هاد الجهاز (بدونها بينمسح لما تسكّر التبويب)"),
       h("div", { class: "row" },

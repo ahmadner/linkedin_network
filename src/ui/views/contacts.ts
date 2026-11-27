@@ -1,11 +1,12 @@
 import { generateMessages } from "../../ai/features";
 import { getApiKey } from "../../ai/key";
+import type { AiConfig } from "../../ai/openai";
 import { FUNCTION_LABELS, INDUSTRY_LABELS } from "../../core/classify";
 import { nameKey } from "../../core/text";
 import { EMPTY_TRACKING } from "../../core/pipeline";
 import type { Contact, MessageSet, StoredMessage, Tracking } from "../../core/types";
 import { contactsCsv } from "../../io/excel";
-import { badge, card, MODE_AR, type Ctx } from "../context";
+import { aiErrorText, badge, card, keepFallbackModel, MODE_AR, type Ctx } from "../context";
 import { copyText, download, field, fmtNumber, h, replace, select, textArea, textInput } from "../dom";
 
 const PAGE_SIZE = 50;
@@ -97,8 +98,13 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
       ctx.go("ai");
       return;
     }
+    const from = ctx.store.state.ai.model;
+    const cfg: AiConfig = { key, model: from };
     const result = await ctx.busy("كتابة رسائل بالذكاء الاصطناعي…", () =>
-      generateMessages(c, ctx.store.state.profile, conversationOf(ctx, c), { key, model: ctx.store.state.ai.model }));
+      generateMessages(c, ctx.store.state.profile, conversationOf(ctx, c), cfg).catch((error: unknown) => {
+        throw new Error(aiErrorText(error, cfg.model));
+      }));
+    keepFallbackModel(ctx, from, cfg);
     if (!result) return;
     view.variant = "ai";
     ctx.store.update((s) => (s.ai.messages[c.id] = result));

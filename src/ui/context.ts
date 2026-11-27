@@ -1,3 +1,4 @@
+import { isModelAccessError, OpenAiError, type AiConfig } from "../ai/openai";
 import { h } from "./dom";
 import type { Store } from "./store";
 
@@ -44,3 +45,17 @@ export function badge(text: string, tone = ""): HTMLElement {
 }
 
 export const MODE_AR: Record<string, string> = { cold: "أول تواصل", reconnect: "تواصلنا قبل", nudge: "بانتظار رد" };
+
+export function aiErrorText(error: unknown, model: string): string {
+  if (isModelAccessError(error)) return `حسابك ما بيقدر يستخدم الموديل ${model}. بعض الموديلات بدها توثيق للمنظمة على OpenAI، فاختار موديل ثاني من صفحة الذكاء الاصطناعي.`;
+  if (error instanceof OpenAiError && error.status === 401) return "مفتاح OpenAI غلط أو انلغى. حط مفتاح جديد من صفحة الذكاء الاصطناعي.";
+  if (error instanceof OpenAiError && error.code === "insufficient_quota") return "رصيد OpenAI خلص. اشحن الحساب من platform.openai.com وجرّب مرة ثانية.";
+  if (error instanceof OpenAiError && error.status === 429) return "OpenAI طلب نخفف الطلبات. استنى دقيقة وجرّب مرة ثانية.";
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function keepFallbackModel(ctx: Ctx, from: string, cfg: AiConfig): void {
+  if (cfg.model === from) return;
+  ctx.store.update((s) => (s.ai.model = cfg.model), { recompute: false });
+  ctx.toast(`حسابك ما بيقدر يستخدم ${from}، فكمّلت بـ ${cfg.model} وصار هو الموديل الافتراضي.`);
+}
