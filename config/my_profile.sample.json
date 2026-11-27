@@ -1,0 +1,68 @@
+{
+  "_comment": "Demo values so you can see the output before sending your CV. Run with --profile config/my_profile.sample.json",
+
+  "me": {
+    "full_name": "Ahmad Nueirat",
+    "first_name": "Ahmad",
+    "headline": "Backend Engineer | Java & Spring Boot",
+    "current_role": "Backend Engineer",
+    "current_company": "",
+    "years_experience": 4,
+    "location": "Amman, Jordan",
+    "target_roles": ["Backend Engineer", "Software Engineer", "Platform Engineer"],
+    "top_skills": ["Java", "Spring Boot", "PostgreSQL", "Docker"],
+    "highlight_ar": "آخر مشروع اشتغلت عليه خفّض زمن الاستجابة للـ API بنسبة 60% بعد إعادة تصميم طبقة الكاش",
+    "highlight_en": "In my last project I cut API response time by 60% by redesigning the caching layer",
+    "cv_link": "https://example.com/ahmad-cv.pdf",
+    "portfolio_link": "",
+    "github": "",
+    "email": "",
+    "phone": "",
+    "open_to": ["Full-time", "Remote", "Hybrid"],
+    "languages": ["Arabic", "English"],
+    "education": "BSc Computer Engineering",
+    "certifications": []
+  },
+
+  "targeting": {
+    "goal": "job_search",
+    "target_functions": [
+      "Engineering & Software",
+      "Data & AI",
+      "DevOps & Cloud",
+      "HR & Recruiting"
+    ],
+    "target_industries": [
+      "Software & IT Services",
+      "Banking & Finance",
+      "Telecom"
+    ],
+    "target_companies": ["Microsoft", "Arab Bank"],
+    "excluded_companies": [],
+    "weights": {
+      "recruiter": 28,
+      "hiring_manager_in_target_function": 26,
+      "decision_maker_max": 18,
+      "target_company": 20,
+      "target_industry": 12,
+      "target_function": 14,
+      "same_function_peer": 8,
+      "email_available": 6,
+      "recency_max": 8,
+      "multi_contact_company": 4,
+      "penalty_student": -6,
+      "penalty_no_company": -4
+    },
+    "buckets": { "A": 65, "B": 45, "C": 25 }
+  },
+
+  "messaging": {
+    "default_language": "ar",
+    "tone": "professional_warm",
+    "signature_ar": "أحمد",
+    "signature_en": "Ahmad",
+    "include_cv_link_in_note": false,
+    "note_char_limit": 200,
+    "message_char_limit": 1600
+  }
+}

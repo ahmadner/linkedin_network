@@ -1,0 +1,68 @@
+{
+  "_comment": "Fill this once. Every message and every priority score is built from it. Send your CV and I will fill it for you precisely.",
+
+  "me": {
+    "full_name": "",
+    "first_name": "",
+    "headline": "",
+    "current_role": "",
+    "current_company": "",
+    "years_experience": 0,
+    "location": "",
+    "target_roles": [],
+    "top_skills": [],
+    "highlight_ar": "",
+    "highlight_en": "",
+    "cv_link": "",
+    "portfolio_link": "",
+    "github": "",
+    "email": "",
+    "phone": "",
+    "open_to": ["Full-time", "Remote", "Hybrid"],
+    "languages": ["Arabic", "English"],
+    "education": "",
+    "certifications": []
+  },
+
+  "targeting": {
+    "goal": "job_search",
+    "target_functions": [
+      "Engineering & Software",
+      "Data & AI",
+      "DevOps & Cloud",
+      "HR & Recruiting"
+    ],
+    "target_industries": [
+      "Software & IT Services",
+      "Banking & Finance",
+      "Telecom"
+    ],
+    "target_companies": [],
+    "excluded_companies": [],
+    "weights": {
+      "recruiter": 28,
+      "hiring_manager_in_target_function": 26,
+      "decision_maker_max": 18,
+      "target_company": 20,
+      "target_industry": 12,
+      "target_function": 14,
+      "same_function_peer": 8,
+      "email_available": 6,
+      "recency_max": 8,
+      "multi_contact_company": 4,
+      "penalty_student": -6,
+      "penalty_no_company": -4
+    },
+    "buckets": { "A": 65, "B": 45, "C": 25 }
+  },
+
+  "messaging": {
+    "default_language": "ar",
+    "tone": "professional_warm",
+    "signature_ar": "",
+    "signature_en": "",
+    "include_cv_link_in_note": false,
+    "note_char_limit": 200,
+    "message_char_limit": 1600
+  }
+}

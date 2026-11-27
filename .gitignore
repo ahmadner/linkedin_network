@@ -1,0 +1,15 @@
+# LinkedIn export + generated reports: personal data, never commit
+data/raw/
+data/out/
+*.xlsx
+*.zip
+
+# your own filled-in copy (keep the blank template tracked)
+config/my_profile.local.json
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
