@@ -1,4 +1,6 @@
-import type { CollectedConnection, CollectedMessage, FetchResponse, HelloResponse, JobResponse, JobStatus, Request, SyncOptions, SyncSince } from "../../extension/src/protocol";
+import type {
+  CandidatesResponse, CollectedConnection, CollectedMessage, FetchResponse, HelloResponse, JobResponse, JobStatus, OutboxDraft, OutboxKind, OutboxResponse, Request, SyncOptions, SyncSince,
+} from "../../extension/src/protocol";
 import targets from "../../extension/targets.json";
 import { sanitizeSyncPayload, type SyncPayload } from "../core/dataset";
 
@@ -71,4 +73,20 @@ export async function collectResult(job: JobStatus, onProgress: (label: string) 
 
 export async function clearExtensionData(): Promise<void> {
   await send<{ ok: true }>({ type: "clear" });
+}
+
+export function outboxStart(kind: OutboxKind, items: OutboxDraft[]): Promise<OutboxResponse> {
+  return send<OutboxResponse>({ type: "outbox-start", kind, items });
+}
+
+export function outboxStatus(): Promise<OutboxResponse> {
+  return send<OutboxResponse>({ type: "outbox-status" });
+}
+
+export function outboxCancel(): Promise<OutboxResponse> {
+  return send<OutboxResponse>({ type: "outbox-cancel" });
+}
+
+export function searchCandidates(): Promise<CandidatesResponse> {
+  return send<CandidatesResponse>({ type: "candidates" });
 }

@@ -3,6 +3,7 @@ import { FUNCTION_LABELS, INDUSTRY_LABELS } from "../../core/classify";
 import { isStale, STAGE_LABEL, STAGES, TONE_LABEL } from "../../core/conversation";
 import { conversationIndex } from "../../core/conversations";
 import { todayIso } from "../../core/dates";
+import { MAX_BATCH, MESSAGE_SOURCES, messageFor, type MessageSource } from "../../core/outreach";
 import { newTracking } from "../../core/pipeline";
 import { hasTag, normalizeTags, tagCounts } from "../../core/tags";
 import { TEMPLATE_IDS, TEMPLATE_LABEL, TEMPLATES_WITH_JOB, TemplateBuilder, type TemplateId } from "../../core/templates";
@@ -10,6 +11,7 @@ import type { Contact, ConversationAnalysis, MessageSet, StoredMessage, Tracking
 import { CONTACT_EXPORT_COLUMNS } from "../../io/excel";
 import { avatar, badge, card, exportLinks, linkedinLinks, MODE_AR, runAi, type Ctx } from "../context";
 import { copyText, field, fmtNumber, h, replace, select, textArea, textInput } from "../dom";
+import { queueMessages } from "./outreach";
 
 const PAGE_SIZE = 50;
 const STATUSES = ["Not started", "Note sent", "Message sent", "Follow-up sent", "Replied", "Meeting booked", "Referred", "Closed - no fit"];
@@ -30,6 +32,7 @@ const view = {
   page: 0,
   selected: "",
   variant: "rules" as "rules" | "ai",
+  source: "message_ar" as MessageSource,
   template: "referral" as TemplateId,
   templateRules: false,
   jobTitle: "",
@@ -97,12 +100,13 @@ function conversationOf(ctx: Ctx, c: Contact): StoredMessage[] {
   return conversationIndex(ctx.store.state.dataset.messages).of(c);
 }
 
-function messageBlock(title: string, text: string, limit?: number): HTMLElement {
+function messageBlock(title: string, text: string, limit?: number, queue?: () => void): HTMLElement {
   const copy = h("button", { type: "button", class: "link" }, "نسخ");
   copy.addEventListener("click", () => void copyText(text).then((ok) => (copy.textContent = ok ? "انسخ ✓" : "ما زبط النسخ")));
   const over = limit !== undefined && text.length > limit;
   return h("div", { class: "msg" },
-    h("div", { class: "msg-head" }, h("strong", {}, title), h("span", { class: over ? "count over" : "count" }, limit ? `${text.length}/${limit}` : `${text.length}`), copy),
+    h("div", { class: "msg-head" }, h("strong", {}, title), h("span", { class: over ? "count over" : "count" }, limit ? `${text.length}/${limit}` : `${text.length}`), copy,
+      queue && text.trim() ? h("button", { type: "button", class: "link", onclick: queue }, "جهّز للإرسال") : null),
     h("pre", { dir: /[؀-ۿ]/.test(text) ? "rtl" : "ltr" }, text),
   );
 }
@@ -134,8 +138,8 @@ function templateCard(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
     ),
     job,
     h("p", { class: "muted small" }, showAi && ai ? `مكتوبة بـ AI (${ai.model})` : "مكتوبة من القواعد، من بروفايلك وبروفايل الشخص"),
-    messageBlock("عربي", text.ar, limit),
-    messageBlock("English", text.en, limit),
+    messageBlock("عربي", text.ar, limit, () => queueMessages(ctx, [{ contact: c, text: text.ar }])),
+    messageBlock("English", text.en, limit, () => queueMessages(ctx, [{ contact: c, text: text.en }])),
   );
 }
 
@@ -162,8 +166,8 @@ function analysisCard(ctx: Ctx, c: Contact, history: StoredMessage[]): HTMLEleme
       ),
       result.summary_ar ? h("p", {}, result.summary_ar) : null,
       result.next_step_ar ? h("p", { class: "advice" }, h("strong", {}, "الخطوة الجاية: "), result.next_step_ar) : null,
-      result.reply_ar ? messageBlock("رد مقترح - عربي", result.reply_ar, limit) : null,
-      result.reply_en ? messageBlock("Suggested reply - English", result.reply_en, limit) : null,
+      result.reply_ar ? messageBlock("رد مقترح - عربي", result.reply_ar, limit, () => queueMessages(ctx, [{ contact: c, text: result.reply_ar }])) : null,
+      result.reply_en ? messageBlock("Suggested reply - English", result.reply_en, limit, () => queueMessages(ctx, [{ contact: c, text: result.reply_en }])) : null,
     ) : h("p", { class: "muted small" }, `بيقرأ آخر ${Math.min(history.length, 20)} رسالة، وبيحكيلك وين وقفتوا وشو الخطوة الجاية، وبيقترح رد جاهز.`),
   );
 }
@@ -236,10 +240,10 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
     ),
     messageBlock("نوت قصيرة - عربي", set.note_ar, limits.note_char_limit),
     messageBlock("Short note - English", set.note_en, limits.note_char_limit),
-    messageBlock("رسالة كاملة - عربي", set.message_ar, limits.message_char_limit),
-    messageBlock("Full message - English", set.message_en, limits.message_char_limit),
-    messageBlock("متابعة - عربي", set.followup_ar),
-    messageBlock("Follow-up - English", set.followup_en),
+    messageBlock("رسالة كاملة - عربي", set.message_ar, limits.message_char_limit, () => queueMessages(ctx, [{ contact: c, text: set.message_ar }])),
+    messageBlock("Full message - English", set.message_en, limits.message_char_limit, () => queueMessages(ctx, [{ contact: c, text: set.message_en }])),
+    messageBlock("متابعة - عربي", set.followup_ar, undefined, () => queueMessages(ctx, [{ contact: c, text: set.followup_ar }])),
+    messageBlock("Follow-up - English", set.followup_en, undefined, () => queueMessages(ctx, [{ contact: c, text: set.followup_en }])),
     templateCard(ctx, c, rerender),
     card("المتابعة", trackingForm(ctx, c)),
   );
@@ -287,6 +291,7 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
       h("button", { type: "button", class: "secondary", disabled: view.page >= pages - 1, onclick: () => { view.page += 1; drawTable(); } }, "التالي"),
       exportLinks(ctx, "contacts", CONTACT_EXPORT_COLUMNS, () => list),
       bulkTag(list),
+      bulkQueue(list),
     );
     replace(tableHost,
       h("div", { class: "scroll" }, h("table", { class: "grid" },
@@ -321,6 +326,17 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
       )),
       pager,
     );
+  };
+
+  const bulkQueue = (list: Contact[]): HTMLElement => {
+    const source = select(MESSAGE_SOURCES, view.source, (v) => (view.source = v as MessageSource), { "aria-label": "نوع الرسالة" });
+    const apply = (): void => {
+      const { profile, ai } = ctx.store.state;
+      const picked = list.filter((c) => c.slug).slice(0, MAX_BATCH);
+      if (picked.length === 0) return;
+      queueMessages(ctx, picked.map((c) => ({ contact: c, text: messageFor(c, view.source, profile, ai.templates) })));
+    };
+    return h("span", { class: "row tight" }, source, h("button", { type: "button", class: "link", onclick: apply }, `جهّز رسالة للنتيجة (أول ${MAX_BATCH})`));
   };
 
   const bulkTag = (list: Contact[]): HTMLElement => {

@@ -213,3 +213,8 @@ input.short { inline-size: 9rem; }
 .person { display: inline-flex; align-items: center; gap: .5rem; }
 .avatar { inline-size: 28px; block-size: 28px; border-radius: 50%; flex: none; object-fit: cover; display: inline-grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); font-size: .7rem; font-weight: 700; }
 .avatar.large { inline-size: 56px; block-size: 56px; font-size: 1.1rem; }
+.warn-note { background: var(--warn-bg); color: var(--text); }
+.drafts { list-style: none; padding: 0; margin: .75rem 0; display: grid; gap: .6rem; }
+.draft { border: 1px solid var(--border); border-radius: 8px; padding: .55rem .7rem; display: grid; gap: .4rem; }
+.draft textarea { inline-size: 100%; font: inherit; }
+.outbox-items { list-style: none; padding: 0; margin: .5rem 0 0; display: grid; gap: .25rem; font-size: .9rem; max-block-size: 14rem; overflow: auto; }

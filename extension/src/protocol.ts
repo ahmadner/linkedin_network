@@ -55,8 +55,63 @@ export interface JobStatus {
   error: string;
 }
 
+export type OutboxKind = "message" | "invite";
+
+export interface OutboxDraft {
+  key: string;
+  kind: OutboxKind;
+  slug: string;
+  memberId: string;
+  name: string;
+  text: string;
+}
+
+export type OutboxItemState = "pending" | "sent" | "failed";
+
+export interface OutboxItem extends OutboxDraft {
+  state: OutboxItemState;
+  error: string;
+  at: string;
+}
+
+export type OutboxState = "running" | "done" | "stopped";
+
+export interface OutboxJob {
+  id: string;
+  kind: OutboxKind;
+  state: OutboxState;
+  items: OutboxItem[];
+  startedAt: string;
+  updatedAt: string;
+  nextAt: number;
+  error: string;
+}
+
+export interface OutboxLimits {
+  day: number;
+  week: number;
+}
+
+export interface OutboxUsage {
+  day: number;
+  week: number;
+  limits: OutboxLimits;
+}
+
+export interface Candidate {
+  slug: string;
+  memberId: string;
+  name: string;
+  headline: string;
+  degree: string;
+}
+
 export type Request =
   | { type: "hello" }
+  | { type: "outbox-start"; kind: OutboxKind; items: OutboxDraft[] }
+  | { type: "outbox-status" }
+  | { type: "outbox-cancel" }
+  | { type: "candidates" }
   | { type: "start"; since: SyncSince; options: SyncOptions }
   | { type: "status" }
   | { type: "cancel" }
@@ -78,6 +133,18 @@ export interface FetchResponse<T> {
   ok: true;
   items: T[];
   total: number;
+}
+
+export interface OutboxResponse {
+  ok: true;
+  job: OutboxJob | null;
+  usage: Record<OutboxKind, OutboxUsage>;
+}
+
+export interface CandidatesResponse {
+  ok: true;
+  url: string;
+  candidates: Candidate[];
 }
 
 export interface ErrorResponse {

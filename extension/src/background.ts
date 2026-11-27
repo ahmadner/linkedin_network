@@ -4,14 +4,14 @@ import {
 } from "./linkedin";
 import type { CollectedConnection, CollectedMessage, ErrorResponse, JobStatus, Request, SyncOptions, SyncSince } from "./protocol";
 import { clearCollected, count, loadJob, page, putConnections, putMessages, saveJob } from "./store";
+import { OUTBOX_ALARM, outboxStatus, processOutbox, readCandidates, startOutbox, stopOutbox } from "./outbox";
+import { closeTabs, FEED_URL, isFatal, linkedinTab as sharedLinkedinTab, openTab as openSharedTab, pageRequest, resourceUrls, sleep, StopError } from "./tab";
 
 declare const __TOOL_ORIGINS__: string[];
 
 const ALARM = "lnt-resume";
 const MESSAGING_URL = "https://www.linkedin.com/messaging/";
-const FEED_URL = "https://www.linkedin.com/feed/";
 const MAX_CONNECTION_PAGES = 1000;
-const MAX_RETRIES = 3;
 const MAX_THREAD_FAILURES = 5;
 const RESUME_WINDOW_MS = 30 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
@@ -19,94 +19,12 @@ const GRAPHQL_PATTERN = "https://www.linkedin.com/voyager/api/voyagerMessagingGr
 
 let running = false;
 let cancelRequested = false;
-const openedTabs = new Set<number>();
 
-class StopError extends Error {}
-class AuthError extends Error {}
-
-const isFatal = (error: unknown): boolean => error instanceof StopError || error instanceof AuthError;
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const politeDelay = (): Promise<void> => sleep(1200 + Math.random() * 1300);
 const now = (): string => new Date().toISOString();
-
-async function waitForTab(tabId: number): Promise<void> {
-  for (let i = 0; i < 60; i += 1) {
-    const tab = await chrome.tabs.get(tabId);
-    if (tab.status === "complete") return;
-    await sleep(500);
-  }
-}
-
-async function openTab(url: string): Promise<number> {
-  const tab = await chrome.tabs.create({ url, active: false });
-  if (tab.id === undefined) throw new Error("Could not open a LinkedIn tab");
-  openedTabs.add(tab.id);
-  await waitForTab(tab.id);
-  await sleep(3000);
-  return tab.id;
-}
-
-async function linkedinTab(url: string): Promise<number> {
-  const tabs = await chrome.tabs.query({ url: "https://www.linkedin.com/*" });
-  const existing = tabs.find((t) => t.id !== undefined && t.status === "complete" && (url === FEED_URL || (t.url ?? "").startsWith(url)));
-  return existing?.id ?? openTab(url);
-}
-
-interface PageResult {
-  status: number;
-  body: unknown;
-}
-
-async function pageFetch(tabId: number, url: string): Promise<unknown> {
-  for (let attempt = 0; ; attempt += 1) {
-    if (cancelRequested) throw new StopError("cancelled");
-    const [injection] = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: "MAIN",
-      args: [url],
-      func: async (target: string): Promise<PageResult> => {
-        const token = /JSESSIONID="?([^";]+)/.exec(document.cookie)?.[1];
-        if (!token) return { status: 401, body: null };
-        const graphql = target.includes("/graphql");
-        const response = await fetch(target, {
-          credentials: "include",
-          headers: {
-            "csrf-token": token,
-            "x-restli-protocol-version": "2.0.0",
-            "x-li-lang": "en_US",
-            accept: graphql ? "application/graphql" : "application/vnd.linkedin.normalized+json+2.1",
-          },
-        });
-        let body: unknown = null;
-        try {
-          body = await response.json();
-        } catch {
-          body = null;
-        }
-        return { status: response.status, body };
-      },
-    });
-    const result = injection?.result as PageResult | undefined;
-    if (!result) throw new Error("LinkedIn tab did not answer");
-    if (result.status === 200) return result.body;
-    if (result.status === 401 || result.status === 403) throw new AuthError("Not signed in to LinkedIn in this browser (or the session expired). Sign in and try again.");
-    if ((result.status === 429 || result.status >= 500) && attempt < MAX_RETRIES) {
-      await sleep(30_000 * (attempt + 1));
-      continue;
-    }
-    throw new Error(`LinkedIn answered ${result.status} for ${url.split("?")[0]}`);
-  }
-}
-
-async function resourceUrls(tabId: number): Promise<string[]> {
-  const [injection] = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: "MAIN",
-    func: () => performance.getEntriesByType("resource").map((e) => e.name),
-  });
-  return (injection?.result as string[] | undefined) ?? [];
-}
+const pageFetch = (tabId: number, url: string): Promise<unknown> => pageRequest(tabId, url, { stop: () => cancelRequested });
+const openTab = (url: string): Promise<number> => openSharedTab(url, "sync");
+const linkedinTab = (url: string): Promise<number> => sharedLinkedinTab(url, "sync");
 
 function newJob(since: SyncSince, options: SyncOptions): JobStatus {
   return {
@@ -335,10 +253,7 @@ async function runJob(): Promise<void> {
   } finally {
     running = false;
     await save(job);
-    if (job.state !== "running") {
-      await Promise.all([...openedTabs].map((id) => chrome.tabs.remove(id).catch(() => undefined)));
-      openedTabs.clear();
-    }
+    if (job.state !== "running") await closeTabs("sync");
     if (job.state !== "running") await chrome.alarms.clear(ALARM);
   }
 }
@@ -406,6 +321,16 @@ async function handle(request: Request): Promise<unknown> {
     case "clear":
       await clearCollected();
       return { ok: true };
+    case "outbox-start":
+      await startOutbox(request.kind === "invite" ? "invite" : "message", request.items);
+      return outboxStatus();
+    case "outbox-status":
+      return outboxStatus();
+    case "outbox-cancel":
+      await stopOutbox();
+      return outboxStatus();
+    case "candidates":
+      return { ok: true, ...(await readCandidates()) };
     default:
       return { ok: false, error: "Unknown request" } satisfies ErrorResponse;
   }
@@ -442,6 +367,10 @@ chrome.webRequest.onBeforeRequest.addListener(
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) void runJob();
+  if (alarm.name === OUTBOX_ALARM) void processOutbox();
 });
 
-chrome.runtime.onStartup.addListener(() => void runJob());
+chrome.runtime.onStartup.addListener(() => {
+  void runJob();
+  void processOutbox();
+});

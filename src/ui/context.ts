@@ -7,7 +7,7 @@ import { rowsCsv, rowsWorkbook, XLSX_TYPE, type Column } from "../io/excel";
 import { download, h } from "./dom";
 import type { Store } from "./store";
 
-export type ViewId = "data" | "contacts" | "companies" | "dashboard" | "opportunities" | "profile" | "ai" | "quality";
+export type ViewId = "data" | "contacts" | "companies" | "dashboard" | "opportunities" | "outreach" | "profile" | "ai" | "quality";
 
 export interface Ctx {
   store: Store;

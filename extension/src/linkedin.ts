@@ -1,4 +1,4 @@
-import type { CollectedConnection, CollectedMessage, Owner, Party } from "./protocol";
+import type { Candidate, CollectedConnection, CollectedMessage, Owner, Party } from "./protocol";
 
 type Obj = Record<string, unknown>;
 
@@ -77,7 +77,7 @@ export function slugFromUrl(url: string): string {
   const m = /linkedin\.com\/in\/([^/?#]+)/i.exec(url);
   if (!m?.[1]) return "";
   const slug = decodeURIComponent(m[1]);
-  return /^ACoA[A-Za-z0-9_-]{10,}$/.test(slug) ? "" : slug.toLowerCase();
+  return MEMBER_ID.test(slug) ? "" : slug.toLowerCase();
 }
 
 function isoDay(ms: number): string {
@@ -264,4 +264,61 @@ export function encodeUrn(urn: string): string {
 export function messagesUrl(template: string, conversationUrn: string, nowMs = Date.now()): string {
   const url = replaceVariable(template, "conversationUrn", encodeUrn(conversationUrn));
   return /deliveredAt:/.test(url) ? replaceVariable(url, "deliveredAt", String(nowMs + 60_000)) : url;
+}
+
+export function profileLookupUrl(slug: string): string {
+  return `${VOYAGER}/identity/dash/profiles?q=memberIdentity&memberIdentity=${encodeURIComponent(slug)}`;
+}
+
+export function findMemberId(json: unknown, slug: string): string {
+  const g = new Graph(json);
+  let fallback = "";
+  for (const obj of g.all) {
+    const urn = str(obj.entityUrn);
+    if (!urn.startsWith("urn:li:fsd_profile:")) continue;
+    const id = memberIdOf(urn);
+    if (!id) continue;
+    if (str(obj.publicIdentifier).toLowerCase() === slug) return id;
+    fallback ||= id;
+  }
+  return fallback;
+}
+
+export interface WriteRequest {
+  url: string;
+  body: string;
+}
+
+export function messageRequest(ownerId: string, recipientId: string, text: string, originToken: string, trackingId: string): WriteRequest {
+  return {
+    url: `${VOYAGER}/voyagerMessagingDashMessengerMessages?action=createMessage`,
+    body: JSON.stringify({
+      message: { body: { attributes: [], text }, originToken, renderContentUnions: [] },
+      mailboxUrn: `urn:li:fsd_profile:${ownerId}`,
+      trackingId,
+      dedupeByClientGeneratedToken: false,
+      hostRecipientUrns: [`urn:li:fsd_profile:${recipientId}`],
+    }),
+  };
+}
+
+export function inviteRequest(recipientId: string, note: string): WriteRequest {
+  const invitee = { inviteeUnion: { memberProfile: `urn:li:fsd_profile:${recipientId}` } };
+  return {
+    url: `${VOYAGER}/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreateV2&decorationId=com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2`,
+    body: JSON.stringify(note ? { invitee, customMessage: note } : { invitee }),
+  };
+}
+
+export const MEMBER_ID = /^ACoA[A-Za-z0-9_-]{10,}$/;
+export const VANITY_SLUG = /^[a-z0-9\-._%]{2,100}$/;
+
+export function candidateFrom(raw: { id: string; name: string; headline: string; degree: string }): Candidate | null {
+  const id = raw.id.trim();
+  const memberId = MEMBER_ID.test(id) ? id : "";
+  const slug = memberId ? "" : id.toLowerCase();
+  if (!memberId && !VANITY_SLUG.test(slug)) return null;
+  const name = raw.name.split("\n")[0]!.trim().slice(0, 120);
+  if (!name) return null;
+  return { slug, memberId, name, headline: raw.headline.trim().slice(0, 300), degree: raw.degree.trim().slice(0, 4) };
 }
