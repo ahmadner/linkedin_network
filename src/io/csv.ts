@@ -58,6 +58,7 @@ export function parseCsv(text: string): string[][] {
 export interface Table {
   header: string[];
   rows: string[][];
+  rowNumbers: number[];
   column(name: string, ...aliases: string[]): number;
 }
 
@@ -68,10 +69,11 @@ export function tableFrom(text: string, isHeader: (cells: string[]) => boolean):
   const start = all.findIndex((cells) => isHeader(cells.map(normalizeHeader)));
   if (start < 0) return null;
   const header = all[start]!.map(normalizeHeader);
-  const rows = all.slice(start + 1).filter((r) => r.some((c) => c.trim() !== ""));
+  const kept = all.map((r, i) => [r, i + 1] as const).slice(start + 1).filter(([r]) => r.some((c) => c.trim() !== ""));
   return {
     header,
-    rows,
+    rows: kept.map(([r]) => r),
+    rowNumbers: kept.map(([, n]) => n),
     column(name: string, ...aliases: string[]): number {
       for (const n of [name, ...aliases]) {
         const idx = header.indexOf(n.toLowerCase());

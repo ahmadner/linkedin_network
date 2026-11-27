@@ -368,6 +368,16 @@ details[open] > summary { margin-block-end: .5rem; }
 .warn-note summary { color: var(--text); }
 .warn-note p { margin: .5rem 0 0; }
 .empty-line p { margin: 0 0 .5rem; }
+.imports { display: grid; gap: .75rem; margin-block-start: .75rem; }
+.import-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem 1rem; align-items: center; padding: .8rem .9rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.import-row > * { min-inline-size: 0; }
+.import-text p { margin: .15rem 0 0; }
+.import-row .guide { grid-column: 1 / -1; }
+.import-row .guide .scroll { margin-block-start: .25rem; }
+.import-row code { font-size: .8rem; }
+.import-report { border: 1px solid var(--border); border-inline-start: 4px solid var(--good); border-radius: var(--radius-sm); padding: .6rem .8rem; background: var(--surface); }
+.import-report.bad { border-inline-start-color: var(--bad); }
+.import-report p { margin: .2rem 0 0; }
 .danger-zone { border-color: var(--bad-bg); }
 .danger-zone h2 { margin: 0; }
 .tabs.small { display: flex; flex-wrap: wrap; border: 0; padding: 0; margin: .75rem 0; gap: .5rem; }
@@ -404,6 +414,8 @@ details[open] > summary { margin-block-end: .5rem; }
   .people .person-text .sub { max-inline-size: 70vw; white-space: normal; }
   .bulk { align-items: stretch; }
   .status-bar { grid-template-columns: 1fr; }
+  .import-row { grid-template-columns: minmax(0, 1fr); }
+  .guide th:nth-child(4), .guide td:nth-child(4) { display: none; }
   .bulk-actions { inline-size: 100%; }
   .bulk select { max-inline-size: 100%; flex: 1; }
   .drawer { inline-size: 100vw; }

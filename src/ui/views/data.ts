@@ -2,15 +2,18 @@ import type { JobStatus } from "../../../extension/src/protocol";
 import { mergeExport, mergeSync } from "../../core/dataset";
 import { cleanProfileUrl } from "../../core/text";
 import { sanitizeProfile } from "../../core/profile";
-import type { MeProfile } from "../../core/types";
+import { profileGaps } from "../../core/messages";
+import type { LogEntry, MeProfile } from "../../core/types";
 import { filesFrom, importExportInBackground, loadStateInBackground, saveStateInBackground } from "../../io/background";
-import { cell, decodeBytes, tableFrom } from "../../io/csv";
+import { decodeBytes } from "../../io/csv";
 import { clearStoredState } from "../../io/db";
-import { readPreviousTracking } from "../../io/excel";
-import { emptyState, sanitizeLog, sanitizeTracking, stateFileName } from "../../io/state";
+import { readTrackingWorkbook, trackingTemplateWorkbook, XLSX_TYPE } from "../../io/excel";
+import { LOG_FIELDS, logTemplateCsv, parseLogCsv, parseProfileJson, PROFILE_FIELDS, profileTemplateJson, TRACKING_FIELDS, type FieldGuide, type ImportIssue } from "../../io/imports";
+import { emptyState, sanitizeTracking, stateFileName } from "../../io/state";
 import { cancelSync, clearExtensionData, collectResult, detectExtension, LOCAL_TOOL, startSync, syncStatus } from "../../linkedin/bridge";
 import { badge, card, type Ctx } from "../context";
 import { append, download, fmtNumber, h, pickFiles } from "../dom";
+import { icon } from "../icons";
 
 let poller: ReturnType<typeof setInterval> | undefined;
 let lastJob: JobStatus | null = null;
@@ -174,54 +177,154 @@ function stats(ctx: Ctx): HTMLElement {
   );
 }
 
-async function importLog(ctx: Ctx): Promise<void> {
+interface ImportReport {
+  title: string;
+  summary: string;
+  issues: ImportIssue[];
+  error: string;
+}
+
+let lastReport: ImportReport | null = null;
+
+const stamp = (): string => new Date().toISOString().slice(0, 10);
+
+function report(ctx: Ctx, rerender: () => void, next: ImportReport): void {
+  lastReport = next;
+  if (next.error) ctx.toast(next.error, "error");
+  else ctx.toast(next.summary);
+  rerender();
+}
+
+function skippedText(n: number): string {
+  return n > 0 ? ` وتجاهلت ${fmtNumber(n)} سطر` : "";
+}
+
+async function readText(file: File): Promise<string> {
+  return decodeBytes(new Uint8Array(await file.arrayBuffer()));
+}
+
+async function importLog(ctx: Ctx, rerender: () => void): Promise<void> {
   const [file] = await pickFiles(".csv");
   if (!file) return;
-  const table = tableFrom(decodeBytes(new Uint8Array(await file.arrayBuffer())), (c) => c.includes("full_name") || c.includes("profile_url"));
-  if (!table) return ctx.toast("الملف لازم يكون بنفس أعمدة outreach_log.csv", "error");
-  const inbound = /^(in|incoming|inbound|received|receive|reply|replied|response|responded|them|from them|واصل|وصل|رد|ورد|منهم|استلمت)$/i;
-  const entries = table.rows.map((r) => {
-    const direction = cell(r, table.column("direction")).toLowerCase().replace(/[\s_-]+/g, " ");
-    return sanitizeLog({
-      profileUrl: cell(r, table.column("profile_url")),
-      fullName: cell(r, table.column("full_name")),
-      channel: cell(r, table.column("channel")),
-      outgoing: !(inbound.test(direction) || /^(in|rec|repl|resp|from)/.test(direction)),
-      sentAt: cell(r, table.column("sent_at")).slice(0, 10),
-      note: cell(r, table.column("note")),
-    });
-  }).filter((e) => e.fullName || e.profileUrl);
-  ctx.store.update((s) => (s.log = [...s.log, ...entries]));
-  ctx.toast(`انضاف ${entries.length} سطر للسجل`);
+  const title = `سجل التواصل: ${file.name}`;
+  const result = parseLogCsv(await readText(file));
+  if (result.error) return report(ctx, rerender, { title, summary: "", issues: result.issues, error: result.error });
+  const logKey = (e: LogEntry): string => [e.profileUrl, e.fullName.toLowerCase(), e.channel.toLowerCase(), e.outgoing, e.sentAt, e.note].join("|");
+  const existing = new Set(ctx.store.state.log.map(logKey));
+  const fresh = result.items.filter((e) => {
+    const k = logKey(e);
+    if (existing.has(k)) return false;
+    existing.add(k);
+    return true;
+  });
+  const duplicates = result.items.length - fresh.length;
+  if (fresh.length > 0) ctx.store.update((s) => (s.log = [...s.log, ...fresh]));
+  report(ctx, rerender, {
+    title,
+    summary: `انضاف ${fmtNumber(fresh.length)} سطر للسجل${duplicates > 0 ? `، و ${fmtNumber(duplicates)} كانوا موجودين قبل` : ""}${skippedText(result.skipped)}.`,
+    issues: result.issues,
+    error: "",
+  });
 }
 
-async function importPreviousReport(ctx: Ctx): Promise<void> {
+async function importTracking(ctx: Ctx, rerender: () => void): Promise<void> {
   const [file] = await pickFiles(".xlsx");
   if (!file) return;
-  const rows = await ctx.busy("قراءة التقرير القديم…", async () => readPreviousTracking(await file.arrayBuffer()));
-  if (!rows) return;
-  let carried = 0;
+  const title = `المتابعة: ${file.name}`;
+  const result = await ctx.busy("قراءة ملف المتابعة…", async () => readTrackingWorkbook(await file.arrayBuffer()));
+  if (!result) return;
+  if (result.error) return report(ctx, rerender, { title, summary: "", issues: result.issues, error: result.error });
+  const known = new Set(ctx.store.hasData ? ctx.store.analysis.contacts.map((c) => c.slug).filter(Boolean) : []);
+  let unknown = 0;
   ctx.store.update((s) => {
-    for (const [url, values] of rows) {
-      const { slug } = cleanProfileUrl(url);
-      if (!slug) continue;
-      s.tracking[`slug:${slug}`] = sanitizeTracking({ ...s.tracking[`slug:${slug}`], ...values });
-      carried += 1;
+    for (const [key, values] of result.items) {
+      if (!known.has(key.slice(5))) unknown += 1;
+      s.tracking[key] = sanitizeTracking({ ...s.tracking[key], ...values });
     }
   });
-  ctx.toast(`انتقلت المتابعة لـ ${carried} شخص`);
+  report(ctx, rerender, {
+    title,
+    summary: `انحدّثت المتابعة لـ ${fmtNumber(result.items.size)} شخص${skippedText(result.skipped)}.${unknown > 0 ? ` منهم ${fmtNumber(unknown)} مش موجودين بشبكتك هلأ، وبتنطبق عليهم لما ينضافوا.` : ""}`,
+    issues: result.issues,
+    error: "",
+  });
 }
 
-async function importProfileJson(ctx: Ctx): Promise<void> {
+async function importProfileJson(ctx: Ctx, rerender: () => void): Promise<void> {
   const [file] = await pickFiles(".json");
   if (!file) return;
-  try {
-    const profile = sanitizeProfile(JSON.parse(await file.text()));
-    ctx.store.update((s) => (s.profile = profile));
-    ctx.toast("انقرا ملف my_profile.json");
-  } catch {
-    ctx.toast("ملف JSON مش صالح", "error");
-  }
+  const title = `البروفايل: ${file.name}`;
+  const result = parseProfileJson(await readText(file));
+  if (result.error) return report(ctx, rerender, { title, summary: "", issues: result.issues, error: result.error });
+  const profile = sanitizeProfile(result.items);
+  ctx.store.update((s) => (s.profile = profile));
+  const gaps = profileGaps(profile).filter((g) => g.startsWith("ضروري"));
+  report(ctx, rerender, {
+    title,
+    summary: "انقرا ملف البروفايل وتحدّث ملفك.",
+    issues: [...result.issues, ...gaps.map((g) => ({ row: 0, message: `ناقص: ${g.replace(/^ضروري: /, "")}` }))],
+    error: "",
+  });
+}
+
+function fieldGuide(fields: FieldGuide[]): HTMLElement {
+  return h("details", { class: "guide" },
+    h("summary", {}, "شرح الأعمدة"),
+    h("div", { class: "scroll" }, h("table", { class: "grid compact-rows" },
+      h("thead", {}, h("tr", {}, ["العمود", "ضروري؟", "شو تكتب", "مثال"].map((t) => h("th", {}, t)))),
+      h("tbody", {}, fields.map((f) => h("tr", {},
+        h("td", { dir: "ltr" }, h("code", {}, f.header)),
+        h("td", {}, f.required ? badge("ضروري", "warn") : h("span", { class: "muted" }, "اختياري")),
+        h("td", {}, f.help),
+        h("td", { dir: "auto", class: "muted small" }, f.example),
+      ))),
+    )),
+  );
+}
+
+function importRow(title: string, text: string, fields: FieldGuide[], template: [string, () => void], upload: [string, () => void]): HTMLElement {
+  return h("div", { class: "import-row" },
+    h("div", { class: "import-text" }, h("strong", {}, title), h("p", { class: "muted small" }, text)),
+    h("div", { class: "row tight wrap" },
+      h("button", { type: "button", class: "secondary small", onclick: template[1] }, icon("download"), template[0]),
+      h("button", { type: "button", class: "small", onclick: upload[1] }, upload[0]),
+    ),
+    fieldGuide(fields),
+  );
+}
+
+function reportBox(): HTMLElement | null {
+  const r = lastReport;
+  if (!r) return null;
+  return h("div", { class: r.error ? "import-report bad" : "import-report", role: "status" },
+    h("div", { class: "card-head" }, h("strong", {}, r.title), h("button", { type: "button", class: "link", onclick: (e: Event) => { lastReport = null; (e.currentTarget as HTMLElement).closest(".import-report")?.remove(); } }, "إخفاء")),
+    h("p", {}, r.error || r.summary),
+    r.issues.length > 0 ? h("ul", { class: "notes" }, r.issues.map((i) => h("li", {}, i.row > 0 ? `سطر ${i.row}: ` : "", i.message))) : null,
+  );
+}
+
+function importCard(ctx: Ctx, rerender: () => void): HTMLElement {
+  const contacts = ctx.store.hasData ? ctx.store.analysis.contacts : [];
+  const trackingTemplate = async (): Promise<void> => {
+    const buffer = await ctx.busy("تجهيز قالب المتابعة…", () => trackingTemplateWorkbook(contacts));
+    if (buffer) download(`tracking_template_${stamp()}.xlsx`, buffer, XLSX_TYPE);
+  };
+  return h("section", { class: "card" },
+    h("h2", {}, "استيراد إضافي"),
+    h("p", { class: "muted small" }, "نزّل القالب، عبّيه ببياناتك، وارفعه. السطر اللي رابطه example-person مثال وبيتجاهله النظام، فبتقدر تخليه أو تمسحه."),
+    reportBox(),
+    h("div", { class: "imports" },
+      importRow("سجل تواصل خارجي", "تواصل صار برا LinkedIn (إيميل، واتساب، تلفون، لقاء). بيدخل بحساب مين تواصلت معه ومين ردّ.", LOG_FIELDS,
+        ["نزّل القالب (CSV)", () => download("outreach_log_template.csv", logTemplateCsv(), "text/csv;charset=utf-8")],
+        ["ارفع السجل", () => void importLog(ctx, rerender)]),
+      importRow("متابعة الأشخاص", contacts.length > 0 ? `القالب فيه كل شبكتك (${fmtNumber(contacts.length)} شخص) مع متابعتهم الحالية. عدّل الحالة والملاحظات وارجع ارفعه. بيقبل كمان تقرير Excel قديم من الأداة.` : "حالة التواصل والملاحظات والوسوم لكل شخص. بيقبل كمان تقرير Excel قديم من الأداة.", TRACKING_FIELDS,
+        ["نزّل القالب (Excel)", () => void trackingTemplate()],
+        ["ارفع المتابعة", () => void importTracking(ctx, rerender)]),
+      importRow("ملفي وأهدافي", "القالب هو ملفك الحالي كـ JSON. عدّل عليه وارجع ارفعه، والملف كامل بيحل محل الموجود.", PROFILE_FIELDS,
+        ["نزّل القالب (JSON)", () => download("my_profile.json", profileTemplateJson(ctx.store.state.profile), "application/json")],
+        ["ارفع البروفايل", () => void importProfileJson(ctx, rerender)]),
+    ),
+  );
 }
 
 export function renderData(ctx: Ctx, rerender: () => void): HTMLElement {
@@ -285,7 +388,6 @@ export function renderData(ctx: Ctx, rerender: () => void): HTMLElement {
   return h("div", { class: "view" },
     ctx.store.hasData ? stats(ctx) : null,
     h("div", { class: "cards-grid" }, sources),
-    h("div", { class: "cards-grid" },
     card(ctx.store.hasData ? "الحفظ والاسترجاع" : "٣. الحفظ والاسترجاع",
       h("p", {}, "كل شي بينحفظ تلقائيًا بهاد المتصفح. للنقل لجهاز ثاني أو كنسخة احتياطية، نزّل ملف zip فيه ملف YAML لكل نوع بيانات (الأشخاص، الرسائل، الدعوات، بروفايلك، المتابعة، الذكاء الاصطناعي، ونقطة آخر مزامنة)، وارفعه لاحقًا عشان تكمل من حيث وقفت."),
       h("div", { class: "row" },
@@ -294,14 +396,7 @@ export function renderData(ctx: Ctx, rerender: () => void): HTMLElement {
       ),
       h("p", { class: "muted small" }, "مفتاح OpenAI ما بينحفظ بهاد الملف أبدًا."),
     ),
-    card("استيراد إضافي",
-      h("div", { class: "row wrap" },
-        h("button", { type: "button", class: "secondary", onclick: () => void importLog(ctx) }, "سجل تواصل خارجي (outreach_log.csv)"),
-        h("button", { type: "button", class: "secondary", onclick: () => void importPreviousReport(ctx) }, "متابعة من تقرير Excel قديم"),
-        h("button", { type: "button", class: "secondary", onclick: () => void importProfileJson(ctx) }, "بروفايل من my_profile.json"),
-      ),
-    ),
-    ),
+    importCard(ctx, rerender),
     h("section", { class: "card danger-zone" },
       h("div", { class: "card-head" },
         h("div", {}, h("h2", {}, "مسح البيانات"), h("p", { class: "muted small" }, "بيمسح كل شي من هاد المتصفح. نزّل ملف الحفظ أول.")),

@@ -2,6 +2,7 @@ import { getApiKey } from "../ai/key";
 import { isModelAccessError, OpenAiError, type AiConfig } from "../ai/openai";
 import { conversationIndex } from "../core/conversations";
 import { profileLink, threadUrl } from "../core/links";
+import { STATUS_AR } from "../core/tracking";
 import type { Contact } from "../core/types";
 import { rowsCsv, rowsWorkbook, XLSX_TYPE, type Column } from "../io/excel";
 import { download, h } from "./dom";
@@ -81,18 +82,7 @@ export function linkedinLinks(ctx: Ctx, c: Pick<Contact, "slug" | "fullName" | "
 
 export const MODE_AR: Record<string, string> = { cold: "أول تواصل", reconnect: "تواصلنا قبل", nudge: "بانتظار رد" };
 
-export const STATUSES = ["Not started", "Note sent", "Message sent", "Follow-up sent", "Replied", "Meeting booked", "Referred", "Closed - no fit"] as const;
-
-export const STATUS_AR: Record<string, string> = {
-  "Not started": "ما بلشت",
-  "Note sent": "بعتت دعوة",
-  "Message sent": "بعتت رسالة",
-  "Follow-up sent": "بعتت متابعة",
-  Replied: "ردّ",
-  "Meeting booked": "في موعد",
-  Referred: "رشّحني",
-  "Closed - no fit": "مسكّر",
-};
+export { STATUS_AR, STATUSES } from "../core/tracking";
 
 export const STATUS_TONE: Record<string, string> = { Replied: "good", "Meeting booked": "good", Referred: "good", "Closed - no fit": "muted-badge" };
 
