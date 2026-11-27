@@ -390,34 +390,40 @@ function imageEditor(ctx: Ctx, d: Draft): HTMLElement {
   const quality = select(IMAGE_QUALITIES.map((q): [string, string] => [q, IMAGE_QUALITY_LABEL[q]]), settings.imageQuality, (v) => setImageSetting(ctx, "imageQuality", v as ImageQuality));
   const model = select(IMAGE_MODELS.map((m): [string, string] => [m, IMAGE_MODEL_LABEL[m] ?? m]), settings.imageModel, (v) => setImageSetting(ctx, "imageModel", v, false));
   const cost = imageCostHint(settings.imageModel, settings.imageQuality, settings.imageCount);
-  return h("div", { class: "panel-section" },
-    h("h3", { class: "with-icon" }, icon("image"), "صورة المنشور"),
+  const view = h("div", { class: "image-view" },
     d.imageId ? h("figure", { class: "current-image" },
       imageThumb(d.imageId, "image-large", "صورة المنشور"),
       h("figcaption", { class: "row tight wrap" },
         h("button", { type: "button", class: "secondary small", onclick: () => void save(d.imageId) }, icon("download"), "نزّل الصورة"),
         h("button", { type: "button", class: "link", onclick: () => patch(ctx, d.id, { imageId: "" }) }, "شيلها من المنشور"),
       ),
-    ) : null,
+    ) : h("div", { class: "image-empty" }, icon("image"), h("span", {}, "الصورة رح تبين هون"), h("span", { class: "muted small" }, "اختار الستايل والمقاس واضغط \"صمّم الصورة\"")),
     gallery.length > 1 ? h("div", {}, h("h3", {}, `اختار النسخة (${fmtNumber(gallery.length)})`), h("ul", { class: "gallery" }, gallery.map((img) => h("li", { class: img.id === d.imageId ? "picked" : "" },
       h("button", { type: "button", class: "gallery-pick", "aria-label": "استعمل هاي الصورة", "aria-pressed": String(img.id === d.imageId), onclick: () => patch(ctx, d.id, { imageId: img.id }) }, imageThumb(img.id, "thumb")),
       h("button", { type: "button", class: "icon-btn", "aria-label": "احذف الصورة", onclick: () => void discard(img.id) }, icon("trash")),
     )))) : null,
+  );
+  const options = h("div", { class: "image-options" },
     h("div", { class: "field" }, h("span", { class: "field-label" }, "الستايل"), styles),
     h("div", { class: "field" }, h("span", { class: "field-label" }, "المقاس"), aspects),
     field("كتابة على الصورة (اختياري)", overlay, "الذكاء الاصطناعي بيكتبها بالضبط. الإنجليزي بيطلع أدق من العربي."),
     ui.headline && ui.headline !== d.imageText ? h("div", { class: "chips" }, h("span", { class: "muted small" }, "اقتراح:"), h("button", { type: "button", class: "chip add", dir: "auto", onclick: () => patch(ctx, d.id, { imageText: ui.headline }) }, "+ ", ui.headline)) : null,
-    h("div", { class: "form-grid narrow" }, field("عدد النسخ", counts), field("الجودة", quality), field("الموديل", model)),
+    h("div", { class: "form-grid narrow" }, field("عدد النسخ", counts), field("الجودة", quality)),
+    field("الموديل", model),
     h("div", { class: "row" },
-      h("button", { type: "button", onclick: () => void run(false) }, icon("spark"), d.imageId ? "صمّم صورة جديدة" : "صمّم الصورة بالذكاء الاصطناعي"),
+      h("button", { type: "button", onclick: () => void run(false) }, icon("spark"), d.imageId ? "صمّم صورة جديدة" : "صمّم الصورة"),
       h("button", { type: "button", class: "secondary", onclick: () => void upload() }, "ارفع صورة"),
     ),
+    h("p", { class: "hint" }, `تقريبًا ${cost}$ من رصيد OpenAI. الذكاء الاصطناعي بيقرأ المنشور، بيكتب توجيه فني، وبعدين بيرسم.`),
     h("details", { class: "write-more" },
       h("summary", {}, "وصف الصورة (متقدم)"),
       field("الوصف اللي انرسمت فيه آخر صورة. عدّله وولّد من جديد.", prompt),
       h("button", { type: "button", class: "secondary small", onclick: () => void run(true) }, "ولّد من هالوصف"),
     ),
-    h("p", { class: "hint" }, `الذكاء الاصطناعي بيقرأ المنشور وبيكتب توجيه فني مفصّل، وبعدين بيرسم. التكلفة تقريبًا ${cost}$ من رصيد OpenAI. الصور بتنحفظ بمتصفحك وبملف الحفظ.`),
+  );
+  return h("div", { class: "panel-section" },
+    h("h2", { class: "with-icon" }, icon("image"), "صورة المنشور"),
+    h("div", { class: "image-layout" }, view, options),
   );
 }
 
@@ -467,7 +473,7 @@ function publishPanel(ctx: Ctx, d: Draft): HTMLElement {
     }, { recompute: false });
   };
   const blocked = postChecks(d).some((c) => c.level === "bad");
-  return h("section", { class: "card publish" },
+  return h("section", { class: "card publish", id: "ed-publish" },
     h("h2", { class: "with-icon" }, icon("send"), "النشر"),
     d.status === "published"
       ? h("div", { class: "panel-section" },
@@ -528,19 +534,25 @@ export function renderEditor(ctx: Ctx, id: string, close: () => void, open: (id:
     h("button", { type: "button", "aria-pressed": String(ui.mobile), onclick: () => { ui.mobile = true; refreshLive(ctx, id); ctx.store.emit(); } }, "موبايل"),
     h("button", { type: "button", "aria-pressed": String(!ui.mobile), onclick: () => { ui.mobile = false; refreshLive(ctx, id); ctx.store.emit(); } }, "كمبيوتر"));
 
+  const jump = (target: string): void => document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const sections: Array<[string, string]> = [["ed-text", "النص"], ["ed-tags", d.format === "carousel" ? "الشرائح" : d.format === "poll" ? "الاستطلاع" : "الهاشتاغات"], ["ed-image", "الصورة"], ["ed-preview", "المعاينة"], ["ed-publish", "النشر"], ["ed-notes", "الملاحظات"]];
+  const checks = postChecks(d);
+  const blockedNow = checks.some((c) => c.level === "bad");
   return h("div", { class: "view editor" },
     h("div", { class: "editor-bar" },
       h("button", { type: "button", class: "secondary small", onclick: close }, icon("back"), "رجوع للوحة"),
       d.seriesId && seriesLabel(ctx, d) ? badge(`سلسلة: ${seriesLabel(ctx, d)}`, "series") : null,
+      badge(STATUS_LABEL[d.status], d.status === "published" ? "good" : d.status === "scheduled" || d.status === "ready" ? "series" : ""),
       h("input", { type: "text", class: "title-input", value: d.title, placeholder: "عنوان داخلي للمسودة", "aria-label": "عنوان المسودة", dir: "auto", onchange: (e: Event) => patch(ctx, id, { title: (e.target as HTMLInputElement).value }) }),
       h("div", { class: "row tight" },
         h("button", { type: "button", class: "secondary small", onclick: duplicate }, icon("copy"), "نسخة"),
         h("button", { type: "button", class: "danger small", onclick: () => void remove() }, icon("trash"), "احذف"),
       ),
     ),
+    h("nav", { class: "presets editor-nav", "aria-label": "أقسام المسودة" }, sections.map(([target, label]) => h("button", { type: "button", onclick: () => jump(target) }, label))),
     h("div", { class: "editor-grid" },
       h("div", { class: "editor-main" },
-        h("section", { class: "card" },
+        h("section", { class: "card", id: "ed-text" },
           h("div", { class: "meta-grid" },
             field("اللغة", langs),
             field("النوع", select(POST_FORMATS.map((f): [string, string] => [f, FORMAT_LABEL[f]]), d.format, (v) => patch(ctx, id, { format: v as Draft["format"] }))),
@@ -567,16 +579,21 @@ export function renderEditor(ctx: Ctx, id: string, close: () => void, open: (id:
           aiResults(ctx, d),
           d.text.trim() && d.status !== "idea" ? h("details", { class: "write-more" }, h("summary", {}, "اكتبه من جديد بالذكاء الاصطناعي"), writeBox(ctx, d)) : writeBox(ctx, d),
         ),
-        h("section", { class: "card" }, hashtagEditor(ctx, d), d.format === "carousel" ? slidesEditor(ctx, d) : null, d.format === "poll" ? pollEditor(ctx, d) : null, imageEditor(ctx, d)),
-        h("section", { class: "card" },
+        h("section", { class: "card", id: "ed-tags" }, hashtagEditor(ctx, d), d.format === "carousel" ? slidesEditor(ctx, d) : null, d.format === "poll" ? pollEditor(ctx, d) : null),
+        h("section", { class: "card", id: "ed-image" }, imageEditor(ctx, d)),
+        h("section", { class: "card", id: "ed-notes" },
           h("div", { class: "panel-section" }, h("h3", {}, "ملاحظات"), textArea(d.notes, (v) => patch(ctx, id, { notes: v }, false), { rows: 3, placeholder: "أفكار، مصادر، لمين بدك تبعته بعد النشر…" })),
           versionsList(ctx, d),
         ),
       ),
       h("aside", { class: "editor-side" },
-        h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "المعاينة"), views), previewHost),
+        h("section", { class: "card", id: "ed-preview" }, h("div", { class: "card-head" }, h("h2", {}, "المعاينة"), views), previewHost),
         publishPanel(ctx, d),
       ),
     ),
+    d.status !== "published" ? h("div", { class: "editor-dock" },
+      h("button", { type: "button", class: "secondary small", onclick: () => jump("ed-preview") }, "المعاينة"),
+      h("button", { type: "button", class: "small", disabled: blockedNow, onclick: () => jump("ed-publish") }, icon("send"), blockedNow ? "صلّح المشاكل أول" : "جاهز؟ انشره"),
+    ) : null,
   );
 }

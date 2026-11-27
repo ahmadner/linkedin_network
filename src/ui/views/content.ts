@@ -18,11 +18,11 @@ type Tab = "overview" | "board" | "series" | "calendar" | "posts" | "settings";
 
 const TABS: Array<[Tab, string]> = [
   ["overview", "نظرة عامة"],
-  ["board", "الأفكار والمسودات"],
+  ["board", "المسودات"],
   ["series", "السلاسل"],
   ["calendar", "التقويم"],
   ["posts", "منشوراتي"],
-  ["settings", "إعدادات المحتوى"],
+  ["settings", "الإعدادات"],
 ];
 
 interface ContentUi {
@@ -51,6 +51,7 @@ interface ContentUi {
   seriesFrom: string;
   seriesImages: boolean;
   seriesPlan: SeriesPlan | null;
+  boardStatus: DraftStatus | "";
 }
 
 const ui: ContentUi = {
@@ -79,6 +80,7 @@ const ui: ContentUi = {
   seriesFrom: "",
   seriesImages: false,
   seriesPlan: null,
+  boardStatus: "",
 };
 
 function openDraft(ctx: Ctx, id: string): void {
@@ -241,6 +243,40 @@ function weekdayBars(counts: number[]): HTMLElement {
   return h("ul", { class: "bars" }, WEEKDAYS_AR.map((d, i) => h("li", {}, h("span", { class: "bar-label" }, d), h("span", { class: "bar-track" }, barFill((counts[i] ?? 0) / max)), h("span", { class: "bar-value" }, fmtNumber(counts[i] ?? 0)))));
 }
 
+function dayLabel(date: string): string {
+  const today = todayIso();
+  if (date === today) return "اليوم";
+  const tomorrow = new Date(Date.now() + 86_400_000);
+  if (date === `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`) return "بكرا";
+  return `${WEEKDAYS_AR[new Date(`${date}T00:00:00Z`).getUTCDay()]} ${date.slice(8)}/${date.slice(5, 7)}`;
+}
+
+function nextUpCard(ctx: Ctx): HTMLElement {
+  const today = todayIso();
+  const drafts = ctx.store.state.content.drafts.filter((d) => d.status !== "published" && d.status !== "idea" && (d.scheduledFor || d.status === "ready"));
+  const ordered = [...drafts].sort((a, b) => (a.scheduledFor || "9999").localeCompare(b.scheduledFor || "9999")).slice(0, 6);
+  const overdue = drafts.filter((d) => d.scheduledFor && d.scheduledFor < today).length;
+  return h("section", { class: "card next-up" },
+    h("div", { class: "card-head" },
+      h("h2", { class: "with-icon" }, icon("calendar"), "الجاي للنشر"),
+      overdue ? badge(`${fmtNumber(overdue)} متأخر`, "bad") : null,
+    ),
+    ordered.length === 0
+      ? h("div", { class: "next-empty" },
+          h("p", { class: "muted small" }, "ما في منشورات جاهزة أو مجدولة. جهّز واحد بضغطة، أو خطّط سلسلة."),
+          h("div", { class: "row" }, h("button", { type: "button", class: "secondary small", onclick: () => switchTab(ctx, "series") }, "خطّط سلسلة"), h("button", { type: "button", class: "secondary small", onclick: () => switchTab(ctx, "calendar") }, "خطة نشر")),
+        )
+      : h("ul", { class: "next-list" }, ordered.map((d) => {
+          const late = Boolean(d.scheduledFor) && d.scheduledFor < today;
+          return h("li", {}, h("button", { type: "button", class: late ? "next-item late" : "next-item", onclick: () => openDraft(ctx, d.id) },
+            h("span", { class: "next-date" }, d.scheduledFor ? (late ? "متأخر" : dayLabel(d.scheduledFor)) : "بدون موعد"),
+            d.imageId ? imageThumb(d.imageId, "thumb small-thumb") : h("span", { class: "thumb small-thumb" }, icon("pen")),
+            h("span", { class: "next-text" }, h("strong", { dir: "auto" }, draftTitle(d)), h("span", { class: "muted small" }, [STATUS_LABEL[d.status], FORMAT_LABEL[d.format], seriesLabel(ctx, d)].filter(Boolean).join(" · "))),
+          ));
+        })),
+  );
+}
+
 function renderOverview(ctx: Ctx): HTMLElement {
   const content = ctx.store.state.content;
   const stats = contentStats(content.posts);
@@ -251,21 +287,22 @@ function renderOverview(ctx: Ctx): HTMLElement {
   const upcoming = drafts.filter((d) => d.scheduledFor >= today && d.scheduledFor <= week && d.status !== "published").length;
   const target = content.settings.postsPerWeek;
   const intro = content.posts.length === 0 && drafts.length === 0
-    ? emptyState("خلّينا نبلش بالمحتوى", "اسحب منشوراتك القديمة بالإضافة أو من ملف الـ Export (Shares.csv)، أو ابدأ على طول: حلّل ملفك بالذكاء الاصطناعي أو اكتب أول منشور.", ["اسحب منشوراتي", () => switchTab(ctx, "posts")])
+    ? emptyState("خلّينا نبلش بالمحتوى", "اسحب منشوراتك القديمة بالإضافة أو من ملف الـ Export (Shares.csv)، أو ابدأ على طول: جهّز منشور كامل بضغطة، أو خلّي الذكاء الاصطناعي يقترح عليك من ملفك.", ["اسحب منشوراتي", () => switchTab(ctx, "posts")])
     : null;
   const months = stats.byMonth.slice(-12);
   return h("div", { class: "view" },
     intro,
-    autopilotCard(ctx),
-    h("div", { class: "kpis" },
-      kpi("منشوراتك", fmtNumber(stats.total), stats.total ? `معدل الطول ${fmtNumber(stats.avgLength)} حرف` : "ارفع Shares.csv", () => switchTab(ctx, "posts")),
+    h("div", { class: "kpis compact-kpis" },
+      kpi("منشوراتك", fmtNumber(stats.total), stats.total ? `معدل الطول ${fmtNumber(stats.avgLength)} حرف` : "ما في لسا", () => switchTab(ctx, "posts")),
       kpi("آخر 90 يوم", fmtNumber(stats.last90), `${stats.perWeek90} بالأسبوع · هدفك ${target}`, undefined, stats.total > 0 && stats.perWeek90 < target ? "hot" : ""),
       kpi("آخر منشور", ago(stats.daysSinceLast), stats.daysSinceLast !== null && stats.daysSinceLast > 14 ? "صار وقت منشور جديد" : "استمر"),
       kpi("أفكار", fmtNumber(count("idea")), "ببنك الأفكار", () => switchTab(ctx, "board")),
       kpi("مسودات وجاهزة", fmtNumber(count("draft") + count("ready")), `${fmtNumber(count("ready"))} جاهزة للنشر`, () => switchTab(ctx, "board")),
       kpi("هالأسبوع", fmtNumber(upcoming), "مجدولة لـ 7 أيام الجاية", () => switchTab(ctx, "calendar")),
     ),
+    h("div", { class: "overview-top" }, autopilotCard(ctx), nextUpCard(ctx)),
     strategyCard(ctx),
+    moreIdeasCard(ctx),
     stats.total > 0 ? h("div", { class: "cards-grid" },
       card("النشر بالشهر", columnChart("منشورات بالشهر", [{ name: "منشورات", className: "s1" }], months.map((m) => ({ label: m.month.slice(2).replace("-", "/"), values: [m.count] })))),
       card("أيام النشر", weekdayBars(stats.byWeekday)),
@@ -278,26 +315,25 @@ function renderOverview(ctx: Ctx): HTMLElement {
       ),
     ) : null,
     stats.topPosts.length ? card("أعلى منشورات تفاعلًا", h("ul", { class: "post-list compact" }, stats.topPosts.map((p) => postRow(ctx, p, true)))) : null,
-    moreIdeasCard(ctx),
   );
 }
 
 function draftCard(ctx: Ctx, d: Draft): HTMLElement {
   const snippet = d.text.replace(/\s+/g, " ").trim();
+  const late = Boolean(d.scheduledFor) && d.scheduledFor < todayIso() && d.status !== "published";
+  const series = seriesLabel(ctx, d);
   return h("li", {},
     h("button", { type: "button", class: "draft-card", onclick: () => openDraft(ctx, d.id) },
-      d.imageId ? imageThumb(d.imageId, "thumb") : null,
       h("span", { class: "draft-text" },
         h("strong", { dir: "auto" }, draftTitle(d)),
         snippet && snippet !== d.title ? h("span", { class: "muted small clamp", dir: "auto" }, snippet.slice(0, 160)) : null,
-        h("span", { class: "chips" },
-          badge(FORMAT_LABEL[d.format]),
-          badge(LANG_LABEL[d.lang]),
-          d.pillar ? badge(d.pillar) : null,
-          d.seriesId && seriesLabel(ctx, d) ? badge(seriesLabel(ctx, d), "series") : null,
-          d.scheduledFor ? badge(`📅 ${d.scheduledFor}`, d.scheduledFor < todayIso() && d.status !== "published" ? "bad" : "") : null,
-        ),
+        h("span", { class: "draft-meta" }, [FORMAT_LABEL[d.format], LANG_LABEL[d.lang], d.pillar].filter(Boolean).join(" · ")),
+        series || d.scheduledFor ? h("span", { class: "chips" },
+          series ? badge(series, "series") : null,
+          d.scheduledFor ? badge(late ? `متأخر · ${d.scheduledFor.slice(5)}` : dayLabel(d.scheduledFor), late ? "bad" : "") : null,
+        ) : null,
       ),
+      d.imageId ? imageThumb(d.imageId, "thumb") : null,
     ),
   );
 }
@@ -335,14 +371,19 @@ function renderBoard(ctx: Ctx): HTMLElement {
     });
   });
   const order = (a: Draft, b: Draft): number => (a.scheduledFor || "9999").localeCompare(b.scheduledFor || "9999") || b.updatedAt.localeCompare(a.updatedAt);
+  const byStatus = new Map(DRAFT_STATUSES.map((st) => [st, visible.filter((d) => d.status === st).sort(order)]));
+  const active = ui.boardStatus || DRAFT_STATUSES.find((st) => st !== "published" && (byStatus.get(st)?.length ?? 0) > 0) || "idea";
+  const switcher = h("div", { class: "presets board-switch", role: "group", "aria-label": "الحالة" }, DRAFT_STATUSES.map((st) =>
+    h("button", { type: "button", "aria-pressed": String(st === active), onclick: () => { ui.boardStatus = st; ctx.store.emit(); } }, STATUS_LABEL[st], h("span", { class: "preset-count" }, fmtNumber(byStatus.get(st)?.length ?? 0)))));
   return h("div", { class: "view" },
     h("div", { class: "toolbar board-tools" },
       h("div", { class: "search-box" }, icon("search"), search),
       pillars.length ? select([["", "كل المحاور"], ...pillars.map((p): [string, string] => [p, p])], ui.pillar, (v) => { ui.pillar = v; ctx.store.emit(); }, { "aria-label": "المحور" }) : null,
     ),
+    switcher,
     h("div", { class: "board" }, DRAFT_STATUSES.map((st) => {
-      const items = visible.filter((d) => d.status === st).sort(order);
-      return h("section", { class: `column col-${st}` },
+      const items = byStatus.get(st) ?? [];
+      return h("section", { class: `column col-${st}${st === active ? " active" : ""}` },
         h("div", { class: "column-head" }, h("h2", {}, STATUS_LABEL[st]), h("span", { class: "count-pill" }, fmtNumber(items.length))),
         st === "idea" ? quickIdea(ctx) : null,
         items.length === 0 ? h("p", { class: "muted small column-empty" }, st === "idea" ? "اكتب فكرة أو خذ من اقتراحات الذكاء الاصطناعي." : "فاضي") : h("ul", { class: "draft-cards" }, items.slice(0, st === "published" ? 30 : 200).map((d) => draftCard(ctx, d))),
@@ -500,7 +541,7 @@ function planCard(ctx: Ctx): HTMLElement {
   };
   return h("section", { class: "card" },
     h("h2", { class: "with-icon" }, icon("spark"), "خطة نشر بالذكاء الاصطناعي"),
-    h("p", { class: "muted small" }, `بيوزّع ${settings.postsPerWeek} منشور بالأسبوع على أفضل الأيام، بيوازن بين المحاور، وما بيكرر منشوراتك القديمة. بتقدر تغيّر العدد من إعدادات المحتوى.`),
+    h("p", { class: "muted small" }, `بيوزّع ${settings.postsPerWeek} منشور بالأسبوع على أفضل الأيام، بيوازن بين المحاور، وما بيكرر منشوراتك القديمة. بتقدر تغيّر العدد من تبويب الإعدادات.`),
     h("div", { class: "toolbar" }, field("من", from), field("المدة", weeks), h("button", { type: "button", onclick: () => void make() }, icon("calendar"), "اعمل الخطة")),
     ui.plan.length ? h("div", {},
       h("ul", { class: "plan" }, ui.plan.map((p) => {
@@ -514,6 +555,11 @@ function planCard(ctx: Ctx): HTMLElement {
       h("div", { class: "row" }, h("button", { type: "button", onclick: accept }, icon("plus"), "أضف المختار للتقويم"), h("button", { type: "button", class: "secondary", onclick: () => { ui.plan = []; ctx.store.emit(); } }, "إلغاء")),
     ) : null,
   );
+}
+
+function showPost(ctx: Ctx, p: Post): void {
+  ui.postSearch = p.text.slice(0, 40);
+  switchTab(ctx, "posts");
 }
 
 function renderCalendar(ctx: Ctx): HTMLElement {
@@ -541,10 +587,18 @@ function renderCalendar(ctx: Ctx): HTMLElement {
         h("span", { class: "day-num" }, String(day)),
         key >= today ? h("button", { type: "button", class: "icon-btn day-add", "aria-label": `منشور جديد بتاريخ ${key}`, onclick: () => createDraft(ctx, { scheduledFor: key }) }, icon("plus")) : null,
       ),
-      drafts.map((d) => h("button", { type: "button", class: `cal-item st-${d.status}`, title: draftTitle(d), onclick: () => openDraft(ctx, d.id) }, draftTitle(d))),
-      posts.map((p) => h("button", { type: "button", class: "cal-item st-published", title: p.text.slice(0, 200), onclick: () => { ui.postSearch = p.text.slice(0, 40); switchTab(ctx, "posts"); } }, p.text.slice(0, 40) || "منشور")),
+      drafts.length || posts.length ? h("div", { class: "day-items" },
+        drafts.map((d) => h("button", { type: "button", class: `cal-item st-${d.status}`, title: draftTitle(d), "aria-label": draftTitle(d), onclick: () => openDraft(ctx, d.id) }, h("span", {}, draftTitle(d)))),
+        posts.map((p) => h("button", { type: "button", class: "cal-item st-published", title: p.text.slice(0, 200), "aria-label": p.text.slice(0, 60), onclick: () => showPost(ctx, p) }, h("span", {}, p.text.slice(0, 40) || "منشور"))),
+      ) : null,
     ));
   }
+  const trailing = (7 - (cells.length % 7)) % 7;
+  for (let i = 0; i < trailing; i += 1) cells.push(h("div", { class: "day blank", "aria-hidden": "true" }));
+  const agenda = [
+    ...[...byDay.entries()].flatMap(([day, list]) => list.map((d) => ({ day, title: draftTitle(d), status: d.status, open: () => openDraft(ctx, d.id) }))),
+    ...[...published.entries()].flatMap(([day, list]) => list.map((p) => ({ day, title: p.text.split("\n")[0]?.slice(0, 90) || "منشور", status: "published" as DraftStatus, open: () => showPost(ctx, p) }))),
+  ].sort((a, b) => a.day.localeCompare(b.day));
   const unscheduled = content.drafts.filter((d) => !d.scheduledFor && (d.status === "ready" || d.status === "draft")).length;
   return h("div", { class: "view" },
     h("section", { class: "card" },
@@ -561,7 +615,18 @@ function renderCalendar(ctx: Ctx): HTMLElement {
         WEEKDAYS_AR.map((d) => h("div", { class: "weekday" }, d)),
         cells,
       ),
-      unscheduled ? h("p", { class: "muted small" }, `عندك ${fmtNumber(unscheduled)} مسودة بدون موعد. حطلها تاريخ من المحرر.`) : null,
+      unscheduled ? h("p", { class: "muted small" }, `عندك ${fmtNumber(unscheduled)} مسودة بدون موعد. افتحها واضغط "أقرب يوم مناسب".`) : null,
+    ),
+    h("section", { class: "card" },
+      h("h2", {}, `مواعيد ${MONTHS_AR[m - 1]}`),
+      agenda.length === 0 ? h("p", { class: "muted small" }, "ما في إشي بهالشهر.") : h("ul", { class: "agenda" }, agenda.map((a) => h("li", {},
+        h("button", { type: "button", class: a.day < today && a.status !== "published" ? "agenda-item late" : "agenda-item", onclick: a.open },
+          h("span", { class: "agenda-date" }, dayLabel(a.day)),
+          h("i", { class: `swatch st-${a.status}`, "aria-hidden": "true" }),
+          h("span", { class: "agenda-title", dir: "auto" }, a.title),
+          h("span", { class: "muted small" }, STATUS_LABEL[a.status]),
+        ),
+      ))),
     ),
     planCard(ctx),
   );
@@ -731,12 +796,20 @@ export function contentBadge(ctx: Ctx): string {
   return due > 0 ? fmtNumber(due) : "";
 }
 
+function tabCount(ctx: Ctx, tab: Tab): string {
+  const c = ctx.store.state.content;
+  const n = tab === "board" ? c.drafts.filter((d) => d.status !== "published").length : tab === "series" ? c.series.length : tab === "posts" ? c.posts.length : 0;
+  return n ? fmtNumber(n) : "";
+}
+
 export function renderContent(ctx: Ctx): HTMLElement {
   if (ui.draftId && findDraft(ctx, ui.draftId)) return renderEditor(ctx, ui.draftId, () => closeDraft(ctx), (id) => openDraft(ctx, id));
   ui.draftId = "";
   const tabs = h("div", { class: "content-head" },
-    h("div", { class: "presets", role: "tablist", "aria-label": "أقسام المحتوى" }, TABS.map(([id, label]) =>
-      h("button", { type: "button", role: "tab", "aria-selected": String(ui.tab === id), "aria-pressed": String(ui.tab === id), onclick: () => switchTab(ctx, id) }, label))),
+    h("div", { class: "presets content-tabs", role: "tablist", "aria-label": "أقسام المحتوى" }, TABS.map(([id, label]) => {
+      const n = tabCount(ctx, id);
+      return h("button", { type: "button", role: "tab", "aria-selected": String(ui.tab === id), "aria-pressed": String(ui.tab === id), onclick: () => switchTab(ctx, id) }, label, n ? h("span", { class: "preset-count" }, n) : null);
+    })),
     h("button", { type: "button", onclick: () => createDraft(ctx) }, icon("pen"), "منشور جديد"),
   );
   const body = ui.tab === "board" ? renderBoard(ctx) : ui.tab === "series" ? renderSeries(ctx) : ui.tab === "calendar" ? renderCalendar(ctx) : ui.tab === "posts" ? renderPosts(ctx) : ui.tab === "settings" ? renderSettings(ctx) : renderOverview(ctx);
