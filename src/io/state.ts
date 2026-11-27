@@ -2,6 +2,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { parse, stringify } from "yaml";
 import { DEFAULT_MODEL } from "../ai/openai";
 import { emptyDataset } from "../core/dataset";
+import { normalizeTags } from "../core/tags";
 import { asNumber, asRecord, asString, asStringList, defaultProfile, DEFAULT_COMPANY_OVERRIDES, sanitizeOverrides, sanitizeProfile } from "../core/profile";
 import type {
   AiClassification, AiMessage, Dataset, LogEntry, OutreachMode, Party, Profile, RawConnection, SourceOrigin,
@@ -137,6 +138,7 @@ export function sanitizeTracking(v: unknown): Tracking {
     replied: asString(r.replied, 20),
     nextStep: asString(r.nextStep, 300),
     notes: asString(r.notes, 4000),
+    tags: normalizeTags(asStringList(r.tags, 50)),
   };
 }
 

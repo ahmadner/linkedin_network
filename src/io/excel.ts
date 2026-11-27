@@ -52,6 +52,7 @@ export const CONNECTION_COLUMNS: Array<Column<Contact>> = [
   ["Replied?", (c) => c.tracking.replied, 10],
   ["Next Step", (c) => c.tracking.nextStep, 18],
   ["Notes", (c) => c.tracking.notes, 30],
+  ["Tags", (c) => c.tracking.tags.join(", "), 24],
 ];
 
 const msg = (c: Contact, key: keyof MessageSet): string => (c.ai ?? c)[key];
@@ -112,7 +113,7 @@ const REFERENCE: Array<[string, string]> = [
   ["Priority score", "A transparent weighted sum (recruiter, decision maker in a target function, seniority, target company/industry/function, email, recency, contacts at the company) minus penalties for students, missing company and people already contacted. See Score Breakdown."],
   ["Outreach mode", "Cold = no trace of previous contact. Reconnect = you spoke before. Nudge = you wrote and never got a reply, so only one short reminder."],
   ["Messages", "Rule-based messages combine an archetype with an industry angle. When AI messages exist for the current mode they replace the rule-based ones in this sheet (see Written By)."],
-  ["Tracking", "Status, Date Sent, Replied, Next Step and Notes are kept in the saved state file and feed back into the outreach mode."],
+  ["Tracking", "Status, Date Sent, Replied, Next Step, Notes and Tags are kept in the saved state file and feed back into the outreach mode."],
 ];
 
 export async function buildWorkbook(analysis: Analysis, profile: Profile): Promise<ArrayBuffer> {
@@ -275,7 +276,7 @@ export async function readPreviousTracking(buffer: ArrayBuffer): Promise<Map<str
   if (!ws) return out;
   const header = (ws.getRow(1).values as unknown[]).map((v) => String(v ?? "").trim());
   const idx = (name: string): number => header.indexOf(name);
-  const wanted: Record<string, string> = { Status: "status", "Date Sent": "dateSent", "Replied?": "replied", "Next Step": "nextStep", Notes: "notes" };
+  const wanted: Record<string, string> = { Status: "status", "Date Sent": "dateSent", "Replied?": "replied", "Next Step": "nextStep", Notes: "notes", Tags: "tags" };
   const urlIdx = idx("LinkedIn Profile");
   if (urlIdx < 0) return out;
   ws.eachRow((row, n) => {

@@ -12,7 +12,7 @@ async function filledState() {
   const state = emptyState();
   state.profile = sanitizeProfile(sampleProfile());
   state.dataset = mergeExport(emptyDataset(), await importExport(sampleFiles(), "sample"));
-  state.tracking["slug:noor-ahmad-hr"] = { status: "Message sent", dateSent: "2026-11-20", replied: "No", nextStep: "wait", notes: "multi\nline: notes" };
+  state.tracking["slug:noor-ahmad-hr"] = { status: "Message sent", dateSent: "2026-11-20", replied: "No", nextStep: "wait", notes: "multi\nline: notes", tags: ["Referral", "Amman"] };
   state.ai.messages["slug:noor-ahmad-hr"] = { mode: "nudge", model: "gpt-5-mini", generatedAt: "2026-11-27T10:00:00Z", note_ar: "أ", note_en: "a", message_ar: "ب", message_en: "b", followup_ar: "ج", followup_en: "c" };
   return state;
 }

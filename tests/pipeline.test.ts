@@ -81,7 +81,7 @@ describe("analysis", () => {
       dataset,
       profile: sanitizeProfile(sampleProfile()),
       overrides: {},
-      tracking: { "slug:hassan-nimri": { status: "Message sent", dateSent: "2026-11-25", replied: "", nextStep: "", notes: "" } },
+      tracking: { "slug:hassan-nimri": { status: "Message sent", dateSent: "2026-11-25", replied: "", nextStep: "", notes: "", tags: [] } },
       log: [],
       aiMessages: {},
       aiClassifications: {},

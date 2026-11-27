@@ -3,7 +3,8 @@ import { getApiKey } from "../../ai/key";
 import type { AiConfig } from "../../ai/openai";
 import { FUNCTION_LABELS, INDUSTRY_LABELS } from "../../core/classify";
 import { nameKey } from "../../core/text";
-import { EMPTY_TRACKING } from "../../core/pipeline";
+import { newTracking } from "../../core/pipeline";
+import { hasTag, normalizeTags, tagCounts } from "../../core/tags";
 import type { Contact, MessageSet, StoredMessage, Tracking } from "../../core/types";
 import { contactsCsv } from "../../io/excel";
 import { aiErrorText, badge, card, keepFallbackModel, MODE_AR, type Ctx } from "../context";
@@ -21,6 +22,7 @@ const view = {
   status: "",
   fn: "",
   industry: "",
+  tag: "",
   sort: "score" as SortKey,
   desc: true,
   page: 0,
@@ -34,9 +36,48 @@ function matches(c: Contact): boolean {
   if (view.status && c.tracking.status !== view.status) return false;
   if (view.fn && c.function !== view.fn) return false;
   if (view.industry && c.industry !== view.industry) return false;
+  if (view.tag && !hasTag(c, view.tag)) return false;
   if (!view.q) return true;
   const q = view.q.toLowerCase();
-  return c.fullName.toLowerCase().includes(q) || c.companyClean.toLowerCase().includes(q) || c.positionClean.toLowerCase().includes(q);
+  return [c.fullName, c.companyClean, c.positionClean, c.tracking.notes, ...c.tracking.tags].some((v) => v.toLowerCase().includes(q));
+}
+
+function patchTracking(ctx: Ctx, c: Contact, patch: Partial<Tracking>, recompute = true): void {
+  ctx.store.update((s) => {
+    const next = { ...newTracking(), ...s.tracking[c.id], ...patch };
+    s.tracking[c.id] = next;
+    c.tracking = next;
+  }, { recompute });
+}
+
+function tagEditor(ctx: Ctx, c: Contact, onChange: () => void): HTMLElement {
+  const host = h("div", { class: "tag-editor" });
+  const draw = (focus: boolean): void => {
+    const input = h("input", { type: "text", list: "known-tags", placeholder: "وسم جديد ثم Enter", "aria-label": "وسم جديد" });
+    const save = (tags: string[]): void => {
+      patchTracking(ctx, c, { tags: normalizeTags(tags) }, false);
+      draw(true);
+      onChange();
+    };
+    const add = (): void => {
+      const values = input.value.split(",").map((v) => v.trim()).filter(Boolean);
+      if (values.length > 0) save([...c.tracking.tags, ...values]);
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== ",") return;
+      e.preventDefault();
+      add();
+    });
+    replace(host,
+      c.tracking.tags.map((t) => h("span", { class: "chip" }, t,
+        h("button", { type: "button", class: "link", "aria-label": `شيل الوسم ${t}`, onclick: () => save(c.tracking.tags.filter((x) => x !== t)) }, "✕"))),
+      input,
+      h("button", { type: "button", class: "link", onclick: add }, "إضافة"),
+    );
+    if (focus) input.focus();
+  };
+  draw(false);
+  return host;
 }
 
 function sorted(list: Contact[]): Contact[] {
@@ -70,10 +111,8 @@ function messageBlock(title: string, text: string, limit?: number): HTMLElement 
   );
 }
 
-function trackingForm(ctx: Ctx, c: Contact): HTMLElement {
-  const set = (patch: Partial<Tracking>): void => ctx.store.update((s) => {
-    s.tracking[c.id] = { ...EMPTY_TRACKING, ...s.tracking[c.id], ...patch };
-  });
+function trackingForm(ctx: Ctx, c: Contact, onChange: () => void): HTMLElement {
+  const set = (patch: Partial<Tracking>): void => patchTracking(ctx, c, patch);
   const date = h("input", { type: "date", value: c.tracking.dateSent });
   date.addEventListener("change", () => set({ dateSent: date.value }));
   const today = (): void => set({ dateSent: new Date().toISOString().slice(0, 10) });
@@ -82,11 +121,15 @@ function trackingForm(ctx: Ctx, c: Contact): HTMLElement {
     field("تاريخ الإرسال", h("div", { class: "row tight" }, date, h("button", { type: "button", class: "link", onclick: today }, "اليوم"))),
     field("رد؟", select([["", "—"], ["Yes", "Yes"], ["No", "No"], ["Pending", "Pending"]], c.tracking.replied, (v) => set({ replied: v }))),
     field("الخطوة الجاية", textInput(c.tracking.nextStep, (v) => set({ nextStep: v }))),
-    field("ملاحظات", textArea(c.tracking.notes, (v) => set({ notes: v }), { rows: 3 })),
+    field("الوسوم", tagEditor(ctx, c, onChange)),
+    field("ملاحظات", textArea(c.tracking.notes, (v) => {
+      patchTracking(ctx, c, { notes: v }, false);
+      onChange();
+    }, { rows: 3 })),
   );
 }
 
-function drawer(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
+function drawer(ctx: Ctx, c: Contact, rerender: () => void, onChange: () => void): HTMLElement {
   const limits = ctx.store.state.profile.messaging;
   const variant = view.variant === "ai" && c.ai ? "ai" : "rules";
   const set: MessageSet = variant === "ai" && c.ai ? c.ai : c;
@@ -153,7 +196,7 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
     messageBlock("Full message - English", set.message_en, limits.message_char_limit),
     messageBlock("متابعة - عربي", set.followup_ar),
     messageBlock("Follow-up - English", set.followup_en),
-    card("المتابعة", trackingForm(ctx, c)),
+    card("المتابعة", trackingForm(ctx, c, onChange)),
   );
 }
 
@@ -177,6 +220,7 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
     return h("div", { class: "view" }, card("ما في بيانات لسا", h("p", {}, "ارفع ملف الـ Export أو اعمل مزامنة من صفحة البيانات."), h("button", { type: "button", onclick: () => ctx.go("data") }, "روح لصفحة البيانات")));
   }
   const all = ctx.store.analysis.contacts;
+  const tags = tagCounts(all);
   const tableHost = h("div", { class: "table-host" });
 
   const drawTable = (): void => {
@@ -189,6 +233,7 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
       h("span", {}, `${fmtNumber(list.length)} شخص · صفحة ${view.page + 1} من ${pages}`),
       h("button", { type: "button", class: "secondary", disabled: view.page >= pages - 1, onclick: () => { view.page += 1; drawTable(); } }, "التالي"),
       h("button", { type: "button", class: "link", onclick: () => download(`contacts-${new Date().toISOString().slice(0, 10)}.csv`, contactsCsv(list), "text/csv;charset=utf-8") }, "تنزيل النتيجة CSV"),
+      bulkTag(list),
     );
     replace(tableHost,
       h("div", { class: "scroll" }, h("table", { class: "grid" },
@@ -202,7 +247,8 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
             h("td", {}, c.idx),
             h("td", {}, badge(c.bucket, `bucket-${c.bucket}`)),
             h("td", {}, c.score),
-            h("td", {}, c.fullName, c.ai ? h("span", { class: "ai-dot", title: "AI" }, " ✦") : null),
+            h("td", {}, c.fullName, c.ai ? h("span", { class: "ai-dot", title: "AI" }, " ✦") : null,
+              c.tracking.tags.length > 0 ? h("div", { class: "chips" }, c.tracking.tags.map((t) => h("span", { class: "chip small" }, t))) : null),
             h("td", { class: "clip" }, c.positionPrimary || c.positionClean),
             h("td", { class: "clip" }, c.companyClean),
             h("td", {}, c.seniority),
@@ -224,13 +270,33 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
     );
   };
 
-  const search = h("input", { type: "search", placeholder: "بحث بالاسم أو الشركة أو المنصب", value: view.q });
+  const bulkTag = (list: Contact[]): HTMLElement => {
+    const input = h("input", { type: "text", list: "known-tags", placeholder: "وسم", "aria-label": "وسم لكل النتيجة", class: "short" });
+    const apply = (): void => {
+      const values = input.value.split(",").map((v) => v.trim()).filter(Boolean);
+      if (values.length === 0 || list.length === 0) return;
+      if (!window.confirm(`إضافة "${values.join(", ")}" لـ ${fmtNumber(list.length)} شخص؟`)) return;
+      ctx.store.update((s) => {
+        for (const c of list) {
+          const next = { ...newTracking(), ...s.tracking[c.id] };
+          next.tags = normalizeTags([...next.tags, ...values]);
+          s.tracking[c.id] = next;
+          c.tracking = next;
+        }
+      }, { recompute: false });
+      ctx.toast(`انضاف الوسم لـ ${fmtNumber(list.length)} شخص`);
+      rerender();
+    };
+    return h("span", { class: "row tight" }, input, h("button", { type: "button", class: "link", onclick: apply }, "وسم النتيجة"));
+  };
+
+  const search = h("input", { type: "search", placeholder: "بحث بالاسم أو الشركة أو المنصب أو الملاحظات أو الوسوم", value: view.q });
   search.addEventListener("input", () => {
     view.q = search.value.trim();
     view.page = 0;
     drawTable();
   });
-  const filter = (label: string, options: string[], key: "bucket" | "mode" | "status" | "fn" | "industry", names?: Record<string, string>): HTMLElement =>
+  const filter = (label: string, options: string[], key: "bucket" | "mode" | "status" | "fn" | "industry" | "tag", names?: Record<string, string>): HTMLElement =>
     select([["", label], ...options.map((o): [string, string] => [o, names?.[o] ?? o])], view[key], (v) => {
       view[key] = v;
       view.page = 0;
@@ -248,9 +314,11 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
         filter("كل حالات المتابعة", STATUSES, "status"),
         filter("كل التخصصات", FUNCTION_LABELS, "fn"),
         filter("كل القطاعات", INDUSTRY_LABELS, "industry"),
+        tags.length > 0 ? filter("كل الوسوم", tags.map(([t]) => t), "tag", Object.fromEntries(tags.map(([t, n]) => [t, `${t} (${n})`]))) : null,
       ),
       tableHost,
     ),
-    selected ? drawer(ctx, selected, rerender) : null,
+    selected ? drawer(ctx, selected, rerender, drawTable) : null,
+    h("datalist", { id: "known-tags" }, tags.map(([t]) => h("option", { value: t }))),
   );
 }

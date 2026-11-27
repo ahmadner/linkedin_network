@@ -150,6 +150,7 @@ export interface Tracking {
   replied: string;
   nextStep: string;
   notes: string;
+  tags: string[];
 }
 
 export interface MessageSet {

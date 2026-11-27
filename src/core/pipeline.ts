@@ -19,7 +19,11 @@ export interface AnalysisInput {
   today: string;
 }
 
-export const EMPTY_TRACKING: Tracking = { status: "Not started", dateSent: "", replied: "", nextStep: "", notes: "" };
+export const EMPTY_TRACKING: Readonly<Tracking> = { status: "Not started", dateSent: "", replied: "", nextStep: "", notes: "", tags: [] };
+
+export function newTracking(): Tracking {
+  return { ...EMPTY_TRACKING, tags: [] };
+}
 
 const MERGE_FIELDS = ["firstName", "lastName", "profileUrl", "email", "company", "position", "connectedOn"] as const;
 
@@ -212,7 +216,7 @@ export function analyze(input: AnalysisInput): Analysis {
       score: score.score,
       bucket: score.bucket,
       scoreBreakdown: score.breakdown,
-      tracking: input.tracking[c.id] ?? { ...EMPTY_TRACKING },
+      tracking: input.tracking[c.id] ?? newTracking(),
       ai: ai && ai.mode === mode ? ai : null,
       aiClassified: c.aiClassified,
     };
@@ -240,7 +244,7 @@ export function analyze(input: AnalysisInput): Analysis {
       messagesTotal: dataset.messages.length,
       invitationsTotal: dataset.invitations.length,
       logTotal: input.log.length,
-      trackedTotal: contacts.filter((c) => c.tracking.status !== EMPTY_TRACKING.status || c.tracking.notes).length,
+      trackedTotal: contacts.filter((c) => c.tracking.status !== EMPTY_TRACKING.status || c.tracking.notes || c.tracking.tags.length > 0).length,
     },
   };
 }
