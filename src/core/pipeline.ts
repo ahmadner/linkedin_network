@@ -137,7 +137,7 @@ export function analyze(input: AnalysisInput): Analysis {
 
   const contacts: Contact[] = staged.map((c) => {
     const { history, matchedBy } = index.lookup(c.url.slug, c.name.full);
-    const { mode, advice } = outreachMode(history, today, messageData);
+    const { mode, advice, adviceAr } = outreachMode(history, today, messageData);
     const days = history.lastContact ? daysBetween(history.lastContact, today) : null;
     const before = contactedBefore(history);
     const score = scoreContact({
@@ -209,6 +209,7 @@ export function analyze(input: AnalysisInput): Analysis {
       historyMatch: matchedBy,
       daysSinceContact: days,
       outreachAdvice: advice,
+      outreachAdviceAr: adviceAr,
       mode,
       modeLabel: MODE_LABEL[mode],
       archetype,

@@ -267,6 +267,7 @@ export interface Contact extends MessageSet {
   historyMatch: string;
   daysSinceContact: number | null;
   outreachAdvice: string;
+  outreachAdviceAr: string;
   mode: OutreachMode;
   modeLabel: string;
   archetype: string;

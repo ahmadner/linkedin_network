@@ -5,7 +5,7 @@ import {
 } from "../../core/opportunities";
 import type { SuggestedCompany } from "../../core/types";
 import type { Column } from "../../io/excel";
-import { avatar, badge, card, exportLinks, linkedinLinks, runAi, type Ctx } from "../context";
+import { avatar, badge, card, exportLinks, linkedinLinks, noData, runAi, type Ctx } from "../context";
 import { h, select } from "../dom";
 import { openContact } from "./contacts";
 
@@ -95,20 +95,21 @@ function peopleCard(ctx: Ctx, people: PersonSuggestion[], rerender: () => void):
     ),
     h("p", { class: "muted small" }, "من شبكتك الحالية: الأعلى نقاطًا، بحد أقصى اثنين من كل شركة. المتابعة للي ما ردوا من أسبوع أو أكثر، والرجوع للي آخر تواصل معهم من 3 شهور أو أكثر."),
     list.length === 0 ? h("p", { class: "muted" }, "ما في اقتراحات حاليًا") : h("div", { class: "scroll short" }, h("table", { class: "grid" },
-      h("thead", {}, h("tr", {}, ["الخطوة", "الاسم", "المنصب", "الشركة", "الفئة", "ليش", ""].map((t) => h("th", {}, t)))),
+      h("thead", {}, h("tr", {}, ["الشخص", "الخطوة", "ليش", ""].map((t) => h("th", {}, t)))),
       h("tbody", {}, list.map((p) => {
         const tr = h("tr", { tabindex: 0 },
+          h("td", {}, h("span", { class: "person" }, avatar(ctx, p.contact), h("span", { class: "person-text" },
+            h("span", { class: "name" }, p.contact.fullName, badge(p.contact.bucket, `bucket-${p.contact.bucket}`)),
+            h("span", { class: "sub", dir: "auto" }, [p.contact.positionPrimary || p.contact.positionClean, p.contact.companyClean].filter(Boolean).join(" · "))))),
           h("td", {}, badge(ACTION_LABEL[p.action], `action-${p.action}`)),
-          h("td", {}, h("span", { class: "person" }, avatar(ctx, p.contact), p.contact.fullName)),
-          h("td", { class: "clip" }, p.contact.positionPrimary || p.contact.positionClean),
-          h("td", { class: "clip" }, p.contact.companyClean),
-          h("td", {}, badge(p.contact.bucket, `bucket-${p.contact.bucket}`)),
-          h("td", {}, p.reason),
+          h("td", { class: "muted small" }, p.reason),
           h("td", {}, linkedinLinks(ctx, p.contact, true)),
         );
         const open = (): void => openContact(ctx, p.contact.id);
         tr.addEventListener("click", open);
-        tr.addEventListener("keydown", (e) => e.key === "Enter" && open());
+        tr.addEventListener("keydown", (e) => {
+          if (e.target === tr && e.key === "Enter") open();
+        });
         return tr;
       })),
     )),
@@ -167,13 +168,13 @@ function aiCard(ctx: Ctx, gaps: Gap[]): HTMLElement {
 }
 
 export function renderOpportunities(ctx: Ctx, rerender: () => void): HTMLElement {
-  if (!ctx.store.hasData) return h("div", { class: "view" }, card("ما في بيانات لسا", h("p", {}, "ارفع ملف الـ Export أول.")));
+  if (!ctx.store.hasData) return noData(ctx);
   const { contacts, companies } = ctx.store.analysis;
   const profile = ctx.store.state.profile;
   const gaps = networkGaps(contacts, profile);
   return h("div", { class: "view" },
-    gapsCard(ctx, gaps),
     peopleCard(ctx, suggestPeople(contacts), rerender),
+    gapsCard(ctx, gaps),
     companiesCard(ctx, suggestCompanies(companies, profile)),
     aiCard(ctx, gaps),
   );

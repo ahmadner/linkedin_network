@@ -7,7 +7,7 @@ import { rowsCsv, rowsWorkbook, XLSX_TYPE, type Column } from "../io/excel";
 import { download, h } from "./dom";
 import type { Store } from "./store";
 
-export type ViewId = "data" | "contacts" | "companies" | "dashboard" | "opportunities" | "outreach" | "profile" | "ai" | "quality";
+export type ViewId = "home" | "data" | "contacts" | "companies" | "dashboard" | "opportunities" | "outreach" | "profile" | "ai" | "quality";
 
 export interface Ctx {
   store: Store;
@@ -80,6 +80,50 @@ export function linkedinLinks(ctx: Ctx, c: Pick<Contact, "slug" | "fullName" | "
 }
 
 export const MODE_AR: Record<string, string> = { cold: "أول تواصل", reconnect: "تواصلنا قبل", nudge: "بانتظار رد" };
+
+export const STATUSES = ["Not started", "Note sent", "Message sent", "Follow-up sent", "Replied", "Meeting booked", "Referred", "Closed - no fit"] as const;
+
+export const STATUS_AR: Record<string, string> = {
+  "Not started": "ما بلشت",
+  "Note sent": "بعتت دعوة",
+  "Message sent": "بعتت رسالة",
+  "Follow-up sent": "بعتت متابعة",
+  Replied: "ردّ",
+  "Meeting booked": "في موعد",
+  Referred: "رشّحني",
+  "Closed - no fit": "مسكّر",
+};
+
+export const STATUS_TONE: Record<string, string> = { Replied: "good", "Meeting booked": "good", Referred: "good", "Closed - no fit": "muted-badge" };
+
+export function statusBadge(status: string): HTMLElement {
+  return badge(STATUS_AR[status] ?? status, STATUS_TONE[status] ?? "");
+}
+
+export function ago(days: number | null): string {
+  if (days === null) return "—";
+  if (days <= 0) return "اليوم";
+  if (days === 1) return "مبارح";
+  if (days < 30) return `قبل ${days} يوم`;
+  if (days < 365) return `قبل ${Math.round(days / 30)} شهر`;
+  return `قبل ${Math.round(days / 365)} سنة`;
+}
+
+export function awaitingMe(c: Contact): boolean {
+  return c.history.lastDirection === "them -> me" && c.tracking.status !== "Closed - no fit";
+}
+
+export function emptyState(title: string, text: string, action?: [string, () => void]): HTMLElement {
+  return h("section", { class: "card empty" },
+    h("h2", {}, title),
+    h("p", { class: "muted" }, text),
+    action ? h("button", { type: "button", onclick: action[1] }, action[0]) : null,
+  );
+}
+
+export function noData(ctx: Ctx): HTMLElement {
+  return h("div", { class: "view" }, emptyState("ما في بيانات لسا", "ارفع ملف الـ Export من LinkedIn أو اعمل مزامنة من الإضافة، وبعدها بتطلع كل الصفحات.", ["روح لصفحة البيانات", () => ctx.go("data")]));
+}
 
 export function aiErrorText(error: unknown, model: string): string {
   if (isModelAccessError(error)) return `حسابك ما بيقدر يستخدم الموديل ${model}. بعض الموديلات بدها توثيق للمنظمة على OpenAI، فاختار موديل ثاني من صفحة الذكاء الاصطناعي.`;
