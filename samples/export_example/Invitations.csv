@@ -1,0 +1,4 @@
+From,To,Sent At,Message,Direction,inviterProfileUrl,inviteeProfileUrl
+Hassan Nimri,Ahmad Nueirat,"8/30/24, 2:13 PM","أحمد، شفت منشورك عن Spring Boot، حبيت اتواصل.",INCOMING,https://www.linkedin.com/in/hassan-nimri/,https://www.linkedin.com/in/ahmad-nueirat/
+Ahmad Nueirat,Ali Barakat,"4/27/22, 10:05 AM",,OUTGOING,https://www.linkedin.com/in/ahmad-nueirat/,https://www.linkedin.com/in/ali-barakat-devops/
+Ahmad Nueirat,Lina Haddad,"3/14/24, 8:00 AM","مرحبا لينا، حبيت اضيفك لشبكتي.",OUTGOING,https://www.linkedin.com/in/ahmad-nueirat/,https://www.linkedin.com/in/lina-haddad-jordan/

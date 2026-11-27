@@ -1,0 +1,16 @@
+# Normalise line endings: LF in the repo, native in the working copy.
+* text=auto
+
+*.py   text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+*.csv  text eol=lf
+*.txt  text eol=lf
+
+# Binary / never diffed or merged
+*.xlsx binary
+*.xlsm binary
+*.zip  binary
+
+# Keep the CSV samples out of GitHub's language stats
+samples/*   linguist-vendored

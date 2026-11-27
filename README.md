@@ -47,11 +47,28 @@
 pip install -r requirements.txt
 ```
 
+انسخ ملف الإعدادات من القالب (أول مرة بس):
+
+```powershell
+Copy-Item config/my_profile.example.json config/my_profile.json
+```
+
+> لو نسيت، أول تشغيل بينسخه عنك لحاله وبينبّهك انه فاضي.
+> نسختك `config/my_profile.json` مستثناة من git لأنها بتحمل إيميلك ورقمك ولينك الـ CV،
+> والقالب `config/my_profile.example.json` هو المتتبّع.
+
 ```powershell
 python src/main.py --input data/raw/Basic_LinkedInDataExport.zip
 ```
 
-تجربة سريعة على بيانات وهمية قبل ما تجيب تصديرك:
+تجربة سريعة على بيانات وهمية قبل ما تجيب تصديرك — تصدير كامل مزيّف
+(connections + messages + invitations + profile) فتشوف ميزة "بعتنا قبل؟" شغّالة:
+
+```powershell
+python src/main.py -i samples/export_example -p config/my_profile.sample.json --log data/outreach_log.example.csv --name example
+```
+
+أو على ملف الـ connections لحاله بدون أي سجل تواصل:
 
 ```powershell
 python src/main.py -i samples/Connections.sample.csv -p config/my_profile.sample.json --name demo
@@ -98,12 +115,19 @@ python src/main.py -i samples/Connections.sample.csv -p config/my_profile.sample
 
 ### تواصل خارج LinkedIn أو بعد التصدير
 `data/outreach_log.csv` — سجّل فيه أي تواصل بالإيميل أو واتساب أو اللي بعتته
-بعد ما سحبت التصدير:
+بعد ما سحبت التصدير. القالب جاهز في `data/outreach_log.example.csv`:
 
 ```csv
 profile_url,full_name,channel,direction,sent_at,note
 https://www.linkedin.com/in/lina-haddad/,Lina Haddad,Email,out,2026-11-20,بعتت السيرة الذاتية
+https://www.linkedin.com/in/rana-saleh-ux/,Rana Saleh,whatsapp,received,2026-09-02,سألت عن الفرص
 ```
+
+عمود `direction`: اكتب `out` / `sent` / `بعثت` للي بعتته، و`in` / `received` / `رد`
+للي وصلك. لو خليته فاضي بيعتبره صادر منك — الخطأ الآمن، لأنه يمنع رسالة
+بدل ما يبعت تعريف لشخص صار بينكم كلام.
+
+ملفك الحقيقي `data/outreach_log.csv` مستثنى من git (فيه أسماء وأرقام ناس).
 
 ### الحفاظ على متابعتك بين التشغيلات
 ```powershell
@@ -233,15 +257,32 @@ linkedin_network/
 │   ├── messages.py    توليد الرسائل عربي/إنجليزي
 │   └── report.py      كتابة ملف Excel
 ├── config/
-│   ├── my_profile.json          ← عدّل هذا
+│   ├── my_profile.example.json  القالب المتتبّع — انسخه
+│   ├── my_profile.json          ← عدّل هذا (مستثنى من git)
 │   ├── my_profile.sample.json   مثال معبّى للتجربة
 │   └── company_overrides.csv    تصحيح قطاعات الشركات
 ├── data/
-│   ├── raw/           حطّ التصدير هنا
-│   └── outreach_log.csv   سجلّك اليدوي للتواصل خارج LinkedIn
-│   └── out/           المخرجات
-└── samples/           بيانات وهمية للتجربة
+│   ├── raw/                     حطّ التصدير هنا (مستثنى من git)
+│   ├── out/                     المخرجات (مستثناة من git)
+│   ├── outreach_log.example.csv قالب السجل اليدوي
+│   └── outreach_log.csv         سجلّك الحقيقي (مستثنى من git)
+├── samples/
+│   ├── Connections.sample.csv   ملف connections وهمي لحاله
+│   └── export_example/          تصدير كامل وهمي: Connections + messages
+│                                + Invitations + Profile
+├── .gitignore       كل بيانات الناس والمخرجات مستثناة
+└── .gitattributes   LF داخل الريبو، و xlsx/zip كـ binary
 ```
+
+### ما بينرفع على git أبدًا
+| | |
+|---|---|
+| `data/raw/`, `*.zip` | تصدير LinkedIn نفسه |
+| `data/out/`, `*.xlsx` | التقارير — فيها أسماء وإيميلات ومناصب |
+| `config/my_profile.json` | إيميلك، رقمك، لينك الـ CV |
+| `data/outreach_log.csv` | سجل تواصلك الحقيقي |
+
+الي بينرفع هو الكود والقوالب والبيانات الوهمية بس.
 
 لا اتصال بالشبكة، لا scraping، لا استهلاك توكنز — كود حتمي يعطي نفس النتيجة
 في كل مرة.

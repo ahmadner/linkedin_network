@@ -1,15 +1,51 @@
-# LinkedIn export + generated reports: personal data, never commit
-data/raw/
-data/out/
-*.xlsx
-*.zip
+# ---------------------------------------------------------------
+#  Personal data — never commit. Everything here is about real
+#  people in your network, or about you.
+# ---------------------------------------------------------------
 
-# your own filled-in copy (keep the blank template tracked)
+# your filled-in copy of the config (copy config/my_profile.example.json)
+config/my_profile.json
 config/my_profile.local.json
 
-# python
+# the LinkedIn export itself
+data/raw/*
+!data/raw/.gitkeep
+*.zip
+
+# generated reports (names, headlines, employers, emails)
+data/out/*
+!data/out/.gitkeep
+*.xlsx
+*.xlsm
+
+# your real outreach log (the .example.csv is the tracked template)
+data/outreach_log.csv
+
+# ---------------------------------------------------------------
+#  Python
+# ---------------------------------------------------------------
 __pycache__/
 *.py[cod]
+*.egg-info/
 .venv/
 venv/
+env/
 .env
+.env.*
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------------------------------------------------------------
+#  Editors / OS
+# ---------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+~$*

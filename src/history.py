@@ -328,15 +328,21 @@ def _load_invitations(input_path: str, index: HistoryIndex) -> None:
         direction = (r.get("Direction") or r.get("DIRECTION") or "").strip().upper()
         when = _parse_dt(r.get("Sent At") or r.get("SENT AT") or "")
         note = (r.get("Message") or r.get("MESSAGE") or "").strip()
-        url = (r.get("inviterProfileUrl") or r.get("inviteeProfileUrl")
-               or r.get("Profile URL") or "")
-
         if direction in ("OUTGOING", "SENT"):
             outgoing = True
         elif direction in ("INCOMING", "RECEIVED"):
             outgoing = False
         else:
             outgoing = bool(me_key) and _name_key(frm) == me_key
+
+        # The counterpart's URL depends on the direction: on an invitation I
+        # sent, inviterProfileUrl is me - crediting it would file the whole
+        # invitation under my own slug and lose the match.
+        inviter = (r.get("inviterProfileUrl") or "").strip()
+        invitee = (r.get("inviteeProfileUrl") or "").strip()
+        url = (invitee if outgoing else inviter) or r.get("Profile URL") or ""
+        if _slug_of(url) and index.me_slug and _slug_of(url) == index.me_slug:
+            url = ""
 
         counterpart = to if outgoing else frm
         if not counterpart:
@@ -363,6 +369,31 @@ def _load_invitations(input_path: str, index: HistoryIndex) -> None:
 
 LOG_HEADER = ["profile_url", "full_name", "channel", "direction", "sent_at", "note"]
 
+# How the `direction` column of outreach_log.csv is read. Anything that is not
+# recognised as inbound is treated as something I sent, because over-reporting
+# "I wrote and got no reply" is the safer error: it holds a message back
+# instead of sending a stranger a message that assumes a past conversation.
+_LOG_INBOUND = ("in", "incoming", "inbound", "received", "receive", "reply",
+                "replied", "response", "responded", "them", "them -> me",
+                "from them", "واصل", "وصل", "رد", "ورد", "منهم", "استلمت")
+_LOG_OUTBOUND = ("out", "outgoing", "outbound", "sent", "send", "me",
+                 "me -> them", "to them", "بعثت", "ارسلت", "أرسلت", "مني", "الي")
+
+
+def _log_direction_is_outgoing(value: Optional[str]) -> bool:
+    v = re.sub(r"[\s_\-]+", " ", (value or "").strip().lower())
+    if not v:
+        return True
+    if v in _LOG_OUTBOUND:
+        return True
+    if v in _LOG_INBOUND:
+        return False
+    # unknown wording: fall back to a prefix test, inbound checked first so
+    # "received" is never mistaken for "sent"
+    if v.startswith(("in", "rec", "repl", "resp", "from")):
+        return False
+    return True
+
 
 def _load_local_log(log_path: str, index: HistoryIndex) -> None:
     """Your own log of outreach done outside LinkedIn, or since the last export.
@@ -380,8 +411,7 @@ def _load_local_log(log_path: str, index: HistoryIndex) -> None:
             slug = _slug_of(r.get("profile_url") or "")
             if not name and not slug:
                 continue
-            direction = (r.get("direction") or "out").strip().lower()
-            outgoing = not direction.startswith("in")
+            outgoing = _log_direction_is_outgoing(r.get("direction"))
             when = _parse_dt(r.get("sent_at") or "")
             channel = (r.get("channel") or "Manual log").strip() or "Manual log"
             h = _add(index, slug, name)

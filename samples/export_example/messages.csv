@@ -1,0 +1,10 @@
+CONVERSATION ID,CONVERSATION TITLE,FROM,SENDER PROFILE URL,TO,RECIPIENT PROFILE URLS,DATE,SUBJECT,CONTENT,FOLDER
+c-0001,,Ahmad Nueirat,https://www.linkedin.com/in/ahmad-nueirat/,Lina Haddad,https://www.linkedin.com/in/lina-haddad-jordan/,2026-11-10 09:14:22 UTC,,"مرحبا لينا، بعتلك الـ CV لوظيفة Backend. بكون ممتن لو اطلعت عليه.",INBOX
+c-0002,,Ahmad Nueirat,https://www.linkedin.com/in/ahmad-nueirat/,Noor Ahmad,https://www.linkedin.com/in/noor-ahmad-hr/,2026-04-02 17:40:05 UTC,,"Hi Noor, following up on the backend opening at Microsoft.",INBOX
+c-0003,,Ahmad Nueirat,https://www.linkedin.com/in/ahmad-nueirat/,Mahmoud Darwish,https://www.linkedin.com/in/mahmoud-darwish-cto/,2025-09-12 11:02:00 UTC,,"محمود، حبيت اسألك عن تجربتك مع Unity vs Flutter بالألعاب.",INBOX
+c-0003,,Mahmoud Darwish,https://www.linkedin.com/in/mahmoud-darwish-cto/,Ahmad Nueirat,https://www.linkedin.com/in/ahmad-nueirat/,2025-09-13 08:21:40 UTC,,"أهلا أحمد، احنا بنستخدم Unity للألعاب و Flutter للتطبيقات المساندة.
+بتقدر تحكيني أي وقت.",INBOX
+c-0004,,Rana Saleh,https://www.linkedin.com/in/rana-saleh-ux/,Ahmad Nueirat,https://www.linkedin.com/in/ahmad-nueirat/,2026-10-05 13:55:10 UTC,,"أحمد، عندنا فريق design system بحاجة backend، مهتم؟",INBOX
+c-0005,,Ahmad Nueirat,https://www.linkedin.com/in/ahmad-nueirat/,Tareq Awwad,https://www.linkedin.com/in/tareq-awwad/,2026-11-01 10:00:00 UTC,,"طارق، كيف الحال؟ بتذكر حكينا عن فرص الـ backend عندكم.",INBOX
+c-0005,,Tareq Awwad,https://www.linkedin.com/in/tareq-awwad/,Ahmad Nueirat,https://www.linkedin.com/in/ahmad-nueirat/,2026-11-02 19:30:00 UTC,,"أهلين أحمد، في شاغر رح ينفتح الشهر الجاي. ابعتلي الـ CV.",INBOX
+c-0006,Backend meetup,Ahmad Nueirat,https://www.linkedin.com/in/ahmad-nueirat/,"Omar Khalil, Khaled Zu'bi","https://www.linkedin.com/in/omar-khalil-dev/; https://www.linkedin.com/in/khaled-zubi/",2026-06-18 20:12:00 UTC,,"شباب، في meetup للـ backend بعمّان الخميس. مين فاضي؟",INBOX

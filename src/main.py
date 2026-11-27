@@ -18,6 +18,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
 from collections import Counter, defaultdict
 from datetime import date
@@ -38,14 +39,30 @@ ROOT = os.path.dirname(HERE)
 DEFAULT_PROFILE = os.path.join(ROOT, "config", "my_profile.json")
 DEFAULT_OVERRIDES = os.path.join(ROOT, "config", "company_overrides.csv")
 DEFAULT_OUTDIR = os.path.join(ROOT, "data", "out")
+EXAMPLE_PROFILE = os.path.join(ROOT, "config", "my_profile.example.json")
 
 
 # --------------------------------------------------------------------------- #
 # config
 # --------------------------------------------------------------------------- #
+
+
 def load_profile(path: str) -> Dict:
+    """Read config/my_profile.json, creating it from the tracked example on a
+    fresh clone so the first run never dies on a missing file. The real copy is
+    git-ignored on purpose: it holds your email, phone and CV link."""
     if not os.path.exists(path):
-        raise FileNotFoundError("Profile config not found: %s" % path)
+        same = os.path.abspath(path) == os.path.abspath(DEFAULT_PROFILE)
+        if same and os.path.exists(EXAMPLE_PROFILE):
+            shutil.copyfile(EXAMPLE_PROFILE, path)
+            print("  created %s from my_profile.example.json - fill it in, "
+                  "the messages stay generic until you do"
+                  % os.path.relpath(path, ROOT))
+        else:
+            raise FileNotFoundError(
+                "Profile config not found: %s -- copy the template: "
+                "cp config/my_profile.example.json config/my_profile.json"
+                % path)
     with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
