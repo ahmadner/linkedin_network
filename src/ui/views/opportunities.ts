@@ -5,7 +5,7 @@ import {
 } from "../../core/opportunities";
 import type { SuggestedCompany } from "../../core/types";
 import type { Column } from "../../io/excel";
-import { badge, card, exportLinks, runAi, type Ctx } from "../context";
+import { badge, card, exportLinks, linkedinLinks, runAi, type Ctx } from "../context";
 import { h, select } from "../dom";
 import { openContact } from "./contacts";
 
@@ -95,7 +95,7 @@ function peopleCard(ctx: Ctx, people: PersonSuggestion[], rerender: () => void):
     ),
     h("p", { class: "muted small" }, "من شبكتك الحالية: الأعلى نقاطًا، بحد أقصى اثنين من كل شركة. المتابعة للي ما ردوا من أسبوع أو أكثر، والرجوع للي آخر تواصل معهم من 3 شهور أو أكثر."),
     list.length === 0 ? h("p", { class: "muted" }, "ما في اقتراحات حاليًا") : h("div", { class: "scroll short" }, h("table", { class: "grid" },
-      h("thead", {}, h("tr", {}, ["الخطوة", "الاسم", "المنصب", "الشركة", "الفئة", "ليش"].map((t) => h("th", {}, t)))),
+      h("thead", {}, h("tr", {}, ["الخطوة", "الاسم", "المنصب", "الشركة", "الفئة", "ليش", ""].map((t) => h("th", {}, t)))),
       h("tbody", {}, list.map((p) => {
         const tr = h("tr", { tabindex: 0 },
           h("td", {}, badge(ACTION_LABEL[p.action], `action-${p.action}`)),
@@ -104,6 +104,7 @@ function peopleCard(ctx: Ctx, people: PersonSuggestion[], rerender: () => void):
           h("td", { class: "clip" }, p.contact.companyClean),
           h("td", {}, badge(p.contact.bucket, `bucket-${p.contact.bucket}`)),
           h("td", {}, p.reason),
+          h("td", {}, linkedinLinks(ctx, p.contact, true)),
         );
         const open = (): void => openContact(ctx, p.contact.id);
         tr.addEventListener("click", open);

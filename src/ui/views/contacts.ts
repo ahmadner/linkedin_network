@@ -8,7 +8,7 @@ import { hasTag, normalizeTags, tagCounts } from "../../core/tags";
 import { TEMPLATE_IDS, TEMPLATE_LABEL, TEMPLATES_WITH_JOB, TemplateBuilder, type TemplateId } from "../../core/templates";
 import type { Contact, ConversationAnalysis, MessageSet, StoredMessage, Tracking } from "../../core/types";
 import { CONTACT_EXPORT_COLUMNS } from "../../io/excel";
-import { badge, card, exportLinks, MODE_AR, runAi, type Ctx } from "../context";
+import { badge, card, exportLinks, linkedinLinks, MODE_AR, runAi, type Ctx } from "../context";
 import { copyText, field, fmtNumber, h, replace, select, textArea, textInput } from "../dom";
 
 const PAGE_SIZE = 50;
@@ -211,8 +211,8 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
       badge(`${c.bucket} · ${c.score}`, `bucket-${c.bucket}`),
       badge(MODE_AR[c.mode] ?? c.mode),
       badge(c.archetypeLabel),
-      c.profileUrl.startsWith("https://www.linkedin.com/") ? h("a", { href: c.profileUrl, target: "_blank", rel: "noopener noreferrer" }, "فتح البروفايل") : null,
     ),
+    linkedinLinks(ctx, c),
     h("p", { class: "advice" }, c.outreachAdvice),
     h("details", {},
       h("summary", {}, "التفاصيل والنقاط"),

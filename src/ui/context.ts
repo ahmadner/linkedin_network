@@ -1,5 +1,8 @@
 import { getApiKey } from "../ai/key";
 import { isModelAccessError, OpenAiError, type AiConfig } from "../ai/openai";
+import { conversationIndex } from "../core/conversations";
+import { profileLink, threadUrl } from "../core/links";
+import type { Contact } from "../core/types";
 import { rowsCsv, rowsWorkbook, XLSX_TYPE, type Column } from "../io/excel";
 import { download, h } from "./dom";
 import type { Store } from "./store";
@@ -44,6 +47,22 @@ export function card(title: string, ...children: Array<Node | string | null | fa
 
 export function badge(text: string, tone = ""): HTMLElement {
   return h("span", { class: `badge ${tone}` }, text);
+}
+
+export function linkedinLinks(ctx: Ctx, c: Pick<Contact, "slug" | "fullName" | "profileUrl">, compact = false): HTMLElement | null {
+  const thread = threadUrl(conversationIndex(ctx.store.state.dataset.messages).of(c));
+  const profile = profileLink(c.profileUrl);
+  if (!thread && !profile) return null;
+  const link = (href: string, label: string): HTMLElement => {
+    const a = h("a", { href, target: "_blank", rel: "noopener noreferrer", class: compact ? "small" : "button secondary small" }, label);
+    a.addEventListener("click", (e) => e.stopPropagation());
+    a.addEventListener("keydown", (e) => e.stopPropagation());
+    return a;
+  };
+  return h("span", { class: "row tight wrap" },
+    thread ? link(thread, "افتح المحادثة") : null,
+    profile ? link(profile, "افتح البروفايل") : null,
+  );
 }
 
 export const MODE_AR: Record<string, string> = { cold: "أول تواصل", reconnect: "تواصلنا قبل", nudge: "بانتظار رد" };
