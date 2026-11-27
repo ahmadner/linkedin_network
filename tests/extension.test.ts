@@ -18,7 +18,7 @@ describe("extension parsers", () => {
   it("reads the legacy connection shape and the owner", () => {
     const legacy = { elements: [{ createdAt: 1, miniProfile: { publicIdentifier: "x", firstName: "X", lastName: "Y", occupation: "Dev" } }] };
     expect(parseConnections(legacy)[0]).toMatchObject({ slug: "x", headline: "Dev" });
-    expect(parseMe({ included: [{ publicIdentifier: "me", firstName: "Ahmad", lastName: "N" }] })).toEqual({ slug: "me", name: "Ahmad N" });
+    expect(parseMe({ included: [{ publicIdentifier: "me", firstName: "Ahmad", lastName: "N" }] })).toEqual({ slug: "me", name: "Ahmad N", memberId: "" });
   });
 
   it("reads messenger conversations and messages", () => {
@@ -33,8 +33,28 @@ describe("extension parsers", () => {
     };
     const conversations = parseConversations(json);
     expect(conversations[0]!.participants.map((p) => p.slug)).toEqual(["me", "lina-h"]);
-    const messages = parseMessages(json, new Map(conversations.map((c) => [c.urn, c])));
+    const messages = parseMessages(json, new Map(conversations.map((c) => [c.urn, c])), { name: "Ahmad N", slug: "me", memberId: "" });
     expect(messages).toEqual([{ id: "m1", conversationId: conv, at: new Date(1700000000000).toISOString(), from: { name: "Lina H", slug: "lina-h" }, to: [{ name: "Ahmad N", slug: "me" }], content: "hello" }]);
+  });
+
+  it("maps messenger member ids to the owner and keeps names for others", () => {
+    const me = "ACoAAA1111111111111111";
+    const lina = "ACoAAB2222222222222222";
+    const conv = `urn:li:msg_conversation:(urn:li:fsd_profile:${me},2-xyz)`;
+    const json = {
+      included: [
+        { entityUrn: conv, lastActivityAt: 1700000000000, "*conversationParticipants": ["p1", "p2"] },
+        { entityUrn: "p1", hostIdentityUrn: `urn:li:fsd_profile:${me}`, participantType: { member: { firstName: { text: "Ahmad" }, lastName: { text: "Nueirat" }, profileUrl: `https://www.linkedin.com/in/${me}` } } },
+        { entityUrn: "p2", hostIdentityUrn: `urn:li:fsd_profile:${lina}`, participantType: { member: { firstName: { text: "Lina" }, lastName: { text: "H" }, profileUrl: `https://www.linkedin.com/in/${lina}` } } },
+        { entityUrn: "m1", deliveredAt: 1700000000000, "*sender": "p1", "*conversation": conv, body: { text: "hi" } },
+      ],
+    };
+    const owner = parseMe({ included: [{ entityUrn: `urn:li:fs_miniProfile:${me}`, publicIdentifier: "ahmad-nueirat", firstName: "Ahmad", lastName: "Nueirat" }] });
+    expect(owner).toEqual({ slug: "ahmad-nueirat", name: "Ahmad Nueirat", memberId: me });
+    const conversations = parseConversations(json);
+    const [message] = parseMessages(json, new Map(conversations.map((c) => [c.urn, c])), owner);
+    expect(message!.from).toEqual({ name: "Ahmad Nueirat", slug: "ahmad-nueirat" });
+    expect(message!.to).toEqual([{ name: "Lina H", slug: "" }]);
   });
 
   it("finds and rewrites messenger GraphQL urls", () => {
@@ -46,6 +66,27 @@ describe("extension parsers", () => {
     expect(conversationsPageUrl(urls.conversations, 99)).toContain("variables=(lastUpdatedBefore:99,mailboxUrn:");
     expect(conversationsPageUrl(conversationsPageUrl(urls.conversations, 99), 42)).toContain("lastUpdatedBefore:42,");
     expect(messagesUrl(urls.messages, "urn:li:msg_conversation:(y,2)")).toContain("conversationUrn:urn%3Ali%3Amsg_conversation%3A%28y%2C2%29)");
+  });
+
+  it("always starts from the newest conversations and messages", () => {
+    const base = "https://www.linkedin.com/voyager/api/voyagerMessagingGraphQL/graphql";
+    const scrolled = `${base}?queryId=messengerConversations.abc&variables=(mailboxUrn:urn%3Ali%3Afsd_profile%3AME,lastUpdatedBefore:123)`;
+    expect(conversationsPageUrl(scrolled, 0)).toBe(`${base}?queryId=messengerConversations.abc&variables=(mailboxUrn:urn%3Ali%3Afsd_profile%3AME)`);
+    expect(conversationsPageUrl(`${base}?queryId=messengerConversations.abc&variables=(lastUpdatedBefore:1,mailboxUrn:x)`, 0)).toContain("variables=(mailboxUrn:x)");
+    expect(conversationsPageUrl(`${base}?queryId=messengerConversations.abc&variables=(a:1,lastUpdatedBefore:1,mailboxUrn:x)`, 0)).toContain("variables=(a:1,mailboxUrn:x)");
+    const older = `${base}?queryId=messengerMessages.def&variables=(deliveredAt:5,conversationUrn:old,countBefore:20)`;
+    expect(messagesUrl(older, "c", 1000)).toBe(`${base}?queryId=messengerMessages.def&variables=(deliveredAt:61000,conversationUrn:c,countBefore:20)`);
+  });
+
+  it("ignores search requests and keeps the latest query ids", () => {
+    const base = "https://www.linkedin.com/voyager/api/voyagerMessagingGraphQL/graphql";
+    const urls = findGraphqlUrls([
+      `${base}?queryId=messengerConversations.aaa1&variables=(mailboxUrn:x)`,
+      `${base}?queryId=messengerConversations.bbb2&variables=(mailboxUrn:x)`,
+      `${base}?queryId=messengerConversations.cafe&variables=(query:(keywords:lina),mailboxUrn:x)`,
+    ]);
+    expect(urls.conversations).toContain("bbb2");
+    expect(urls.messages).toBe("");
   });
 });
 

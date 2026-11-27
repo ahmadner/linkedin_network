@@ -12,12 +12,19 @@ const MESSAGING_URL = "https://www.linkedin.com/messaging/";
 const FEED_URL = "https://www.linkedin.com/feed/";
 const MAX_CONNECTION_PAGES = 1000;
 const MAX_RETRIES = 3;
+const MAX_THREAD_FAILURES = 5;
+const RESUME_WINDOW_MS = 30 * 60_000;
+const DAY_MS = 24 * 60 * 60_000;
+const GRAPHQL_PATTERN = "https://www.linkedin.com/voyager/api/voyagerMessagingGraphQL/graphql*";
 
 let running = false;
 let cancelRequested = false;
 const openedTabs = new Set<number>();
 
 class StopError extends Error {}
+class AuthError extends Error {}
+
+const isFatal = (error: unknown): boolean => error instanceof StopError || error instanceof AuthError;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const politeDelay = (): Promise<void> => sleep(1200 + Math.random() * 1300);
@@ -31,16 +38,19 @@ async function waitForTab(tabId: number): Promise<void> {
   }
 }
 
-async function linkedinTab(url: string): Promise<number> {
-  const tabs = await chrome.tabs.query({ url: "https://www.linkedin.com/*" });
-  const existing = tabs.find((t) => t.id !== undefined && (url === FEED_URL || (t.url ?? "").startsWith(url)));
-  if (existing?.id !== undefined) return existing.id;
+async function openTab(url: string): Promise<number> {
   const tab = await chrome.tabs.create({ url, active: false });
   if (tab.id === undefined) throw new Error("Could not open a LinkedIn tab");
   openedTabs.add(tab.id);
   await waitForTab(tab.id);
   await sleep(3000);
   return tab.id;
+}
+
+async function linkedinTab(url: string): Promise<number> {
+  const tabs = await chrome.tabs.query({ url: "https://www.linkedin.com/*" });
+  const existing = tabs.find((t) => t.id !== undefined && t.status === "complete" && (url === FEED_URL || (t.url ?? "").startsWith(url)));
+  return existing?.id ?? openTab(url);
 }
 
 interface PageResult {
@@ -80,7 +90,7 @@ async function pageFetch(tabId: number, url: string): Promise<unknown> {
     const result = injection?.result as PageResult | undefined;
     if (!result) throw new Error("LinkedIn tab did not answer");
     if (result.status === 200) return result.body;
-    if (result.status === 401 || result.status === 403) throw new Error("Not signed in to LinkedIn in this browser (or the session expired). Sign in and try again.");
+    if (result.status === 401 || result.status === 403) throw new AuthError("Not signed in to LinkedIn in this browser (or the session expired). Sign in and try again.");
     if ((result.status === 429 || result.status >= 500) && attempt < MAX_RETRIES) {
       await sleep(30_000 * (attempt + 1));
       continue;
@@ -108,7 +118,7 @@ function newJob(since: SyncSince, options: SyncOptions): JobStatus {
     finishedAt: "",
     since,
     options,
-    owner: { name: "", slug: "" },
+    owner: { name: "", slug: "", memberId: "" },
     counts: { connections: 0, conversations: 0, messages: 0 },
     cursor: { connectionsStart: 0, conversationsBefore: 0, conversationIndex: 0 },
     notes: [],
@@ -134,7 +144,7 @@ async function syncConnections(job: JobStatus, tabId: number): Promise<void> {
         try {
           items = parseConnections(await pageFetch(tabId, CONNECTION_ENDPOINTS[i]!(job.cursor.connectionsStart)));
         } catch (error) {
-          if (error instanceof StopError || (error instanceof Error && error.message.startsWith("Not signed in"))) throw error;
+          if (isFatal(error)) throw error;
           continue;
         }
         if (items.length > 0 || i === CONNECTION_ENDPOINTS.length - 1) {
@@ -151,11 +161,21 @@ async function syncConnections(job: JobStatus, tabId: number): Promise<void> {
     job.counts.connections = await count("connections");
     job.cursor.connectionsStart += items.length;
     await save(job);
-    const since = job.since.newestConnectionAt;
+    const since = dayBefore(job.since.newestConnectionAt);
     if (since && items.every((c) => c.connectedAt !== "" && c.connectedAt < since)) return;
     await politeDelay();
   }
   note(job, "Stopped connections after the safety page limit");
+}
+
+function dayBefore(day: string): string {
+  const ms = Date.parse(day);
+  return Number.isFinite(ms) ? new Date(ms - DAY_MS).toISOString().slice(0, 10) : "";
+}
+
+function sinceMessagesMs(job: JobStatus): number {
+  const ms = job.since.newestMessageAt ? Date.parse(job.since.newestMessageAt) : 0;
+  return Number.isFinite(ms) && ms > 0 ? ms - DAY_MS : 0;
 }
 
 async function loadConversations(): Promise<ParsedConversation[]> {
@@ -163,65 +183,120 @@ async function loadConversations(): Promise<ParsedConversation[]> {
   return (stored.conversations as ParsedConversation[] | undefined) ?? [];
 }
 
-async function syncMessages(job: JobStatus): Promise<void> {
-  const tabId = await linkedinTab(MESSAGING_URL);
+async function storedQueryIds(): Promise<QueryIds> {
+  const stored = (await chrome.storage.local.get("queryIds")).queryIds as Partial<QueryIds> | undefined;
+  return { conversations: stored?.conversations ?? "", messages: stored?.messages ?? "" };
+}
+
+async function rememberQueryIds(found: QueryIds): Promise<QueryIds> {
+  const stored = await storedQueryIds();
+  const ids = { conversations: found.conversations || stored.conversations, messages: found.messages || stored.messages };
+  if (ids.conversations !== stored.conversations || ids.messages !== stored.messages) await chrome.storage.local.set({ queryIds: ids });
+  return ids;
+}
+
+async function discoverQueryIds(tabId: number): Promise<QueryIds> {
+  return rememberQueryIds(findGraphqlUrls(await resourceUrls(tabId)));
+}
+
+async function freshQueryIds(dropStored: boolean): Promise<{ tabId: number; ids: QueryIds }> {
+  const tabId = await openTab(MESSAGING_URL);
   await sleep(4000);
-  const stored = await chrome.storage.local.get("queryIds");
   const found = findGraphqlUrls(await resourceUrls(tabId));
-  const ids: QueryIds = {
-    conversations: found.conversations || ((stored.queryIds as QueryIds | undefined)?.conversations ?? ""),
-    messages: found.messages || ((stored.queryIds as QueryIds | undefined)?.messages ?? ""),
-  };
-  await chrome.storage.local.set({ queryIds: ids });
+  if (!dropStored) return { tabId, ids: await rememberQueryIds(found) };
+  await chrome.storage.local.set({ queryIds: found });
+  return { tabId, ids: found };
+}
+
+async function readConversations(job: JobStatus, tabId: number, ids: QueryIds, sinceMs: number): Promise<void> {
+  job.phase = "conversations";
+  const conversations = new Map((await loadConversations()).map((c) => [c.urn, c]));
+  let before = job.cursor.conversationsBefore;
+  while (conversations.size < job.options.maxConversations) {
+    const body = await pageFetch(tabId, conversationsPageUrl(ids.conversations, before));
+    const pageItems = parseConversations(body);
+    const fresh = pageItems.filter((c) => !conversations.has(c.urn));
+    for (const c of pageItems) conversations.set(c.urn, c);
+    const byUrn = new Map(pageItems.map((c) => [c.urn, c]));
+    const inline = parseMessages(body, byUrn, job.owner).filter((m) => Date.parse(m.at) > sinceMs);
+    if (inline.length > 0) await putMessages(inline);
+    job.counts.conversations = conversations.size;
+    job.counts.messages = await count("messages");
+    await chrome.storage.local.set({ conversations: [...conversations.values()] });
+    const oldest = pageItems[pageItems.length - 1]?.lastActivityAt ?? 0;
+    if (oldest === 0 || oldest <= sinceMs) break;
+    if (fresh.length === 0) {
+      note(job, "LinkedIn stopped returning older conversations, so some older threads may be missing.");
+      break;
+    }
+    before = oldest - 1;
+    job.cursor.conversationsBefore = before;
+    await save(job);
+    await politeDelay();
+  }
+  if (conversations.size >= job.options.maxConversations) note(job, `Stopped at ${job.options.maxConversations} conversations`);
+  job.phase = "messages";
+  job.cursor.conversationIndex = 0;
+  await save(job);
+}
+
+async function readThreads(job: JobStatus, tabId: number, ids: QueryIds, sinceMs: number): Promise<void> {
+  const changed = (await loadConversations()).filter((c) => c.lastActivityAt > sinceMs);
+  const byUrn = new Map(changed.map((c) => [c.urn, c]));
+  let failures = 0;
+  let skipped = 0;
+  for (let i = job.cursor.conversationIndex; i < changed.length; i += 1) {
+    const conv = changed[i]!;
+    try {
+      const items: CollectedMessage[] = parseMessages(await pageFetch(tabId, messagesUrl(ids.messages, conv.urn)), byUrn, job.owner).filter((m) => Date.parse(m.at) > sinceMs);
+      if (items.length > 0) await putMessages(items);
+      failures = 0;
+    } catch (error) {
+      if (isFatal(error)) throw error;
+      failures += 1;
+      skipped += 1;
+      if (failures >= MAX_THREAD_FAILURES) {
+        note(job, `Stopped reading full threads after ${MAX_THREAD_FAILURES} failed requests in a row (${error instanceof Error ? error.message : String(error)}). The latest message of each conversation was still saved.`);
+        return;
+      }
+    }
+    job.cursor.conversationIndex = i + 1;
+    job.counts.messages = await count("messages");
+    await save(job);
+    await politeDelay();
+  }
+  if (skipped > 0) note(job, `${skipped} conversations could not be read in full and were skipped.`);
+}
+
+async function syncMessages(job: JobStatus): Promise<void> {
+  let tabId = await linkedinTab(MESSAGING_URL);
+  await sleep(4000);
+  let ids = await discoverQueryIds(tabId);
+  if (!ids.conversations || !ids.messages) ({ tabId, ids } = await freshQueryIds(false));
   if (!ids.conversations) {
-    note(job, "Message history was not read: open linkedin.com/messaging once in this browser, then sync again.");
+    note(job, "Message history was not read: LinkedIn messaging did not load in the background tab. Open linkedin.com/messaging once in this browser, then sync again.");
     return;
   }
-  const sinceMs = job.since.newestMessageAt ? Date.parse(job.since.newestMessageAt) : 0;
+  const sinceMs = sinceMessagesMs(job);
 
   if (job.phase !== "messages") {
-    job.phase = "conversations";
-    const conversations = new Map((await loadConversations()).map((c) => [c.urn, c]));
-    let before = job.cursor.conversationsBefore;
-    while (conversations.size < job.options.maxConversations) {
-      const body = await pageFetch(tabId, conversationsPageUrl(ids.conversations, before));
-      const pageItems = parseConversations(body);
-      const fresh = pageItems.filter((c) => !conversations.has(c.urn));
-      for (const c of pageItems) conversations.set(c.urn, c);
-      const byUrn = new Map(pageItems.map((c) => [c.urn, c]));
-      const inline = parseMessages(body, byUrn).filter((m) => Date.parse(m.at) > sinceMs);
-      if (inline.length > 0) await putMessages(inline);
-      job.counts.conversations = conversations.size;
-      job.counts.messages = await count("messages");
-      const oldest = pageItems[pageItems.length - 1]?.lastActivityAt ?? 0;
-      await chrome.storage.local.set({ conversations: [...conversations.values()] });
-      if (fresh.length === 0 || oldest === 0 || oldest <= sinceMs) break;
-      before = oldest - 1;
-      job.cursor.conversationsBefore = before;
-      await save(job);
-      await politeDelay();
+    try {
+      await readConversations(job, tabId, ids, sinceMs);
+    } catch (error) {
+      if (isFatal(error)) throw error;
+      ({ tabId, ids } = await freshQueryIds(true));
+      if (!ids.conversations) throw error;
+      job.cursor.conversationsBefore = 0;
+      await chrome.storage.local.remove("conversations");
+      await readConversations(job, tabId, ids, sinceMs);
     }
-    if (conversations.size >= job.options.maxConversations) note(job, `Stopped at ${job.options.maxConversations} conversations`);
-    job.phase = "messages";
-    job.cursor.conversationIndex = 0;
-    await save(job);
   }
 
   if (!ids.messages) {
     note(job, "Only the latest message of each conversation was read. Open any conversation on linkedin.com/messaging, then sync again for full threads.");
     return;
   }
-  const changed = (await loadConversations()).filter((c) => c.lastActivityAt > sinceMs);
-  const byUrn = new Map(changed.map((c) => [c.urn, c]));
-  for (let i = job.cursor.conversationIndex; i < changed.length; i += 1) {
-    const conv = changed[i]!;
-    const items: CollectedMessage[] = parseMessages(await pageFetch(tabId, messagesUrl(ids.messages, conv.urn)), byUrn).filter((m) => Date.parse(m.at) > sinceMs);
-    if (items.length > 0) await putMessages(items);
-    job.cursor.conversationIndex = i + 1;
-    job.counts.messages = await count("messages");
-    await save(job);
-    await politeDelay();
-  }
+  await readThreads(job, tabId, ids, sinceMs);
 }
 
 async function runJob(): Promise<void> {
@@ -244,7 +319,12 @@ async function runJob(): Promise<void> {
       await save(job);
     }
     if (job.phase === "discovery" || job.phase === "conversations" || job.phase === "messages") {
-      await syncMessages(job);
+      try {
+        await syncMessages(job);
+      } catch (error) {
+        if (isFatal(error)) throw error;
+        note(job, `Messages were not fully read: ${error instanceof Error ? error.message : String(error)}. People were still synced.`);
+      }
     }
     job.phase = "finished";
     job.state = "done";
@@ -267,10 +347,16 @@ function sameSince(a: SyncSince, b: SyncSince): boolean {
   return a.newestConnectionAt === b.newestConnectionAt && a.newestMessageAt === b.newestMessageAt;
 }
 
+function resumable(previous: JobStatus | null, since: SyncSince): previous is JobStatus {
+  if (!previous || previous.state === "done" || !sameSince(previous.since, since)) return false;
+  if (previous.state === "running") return true;
+  return Date.now() - Date.parse(previous.updatedAt) < RESUME_WINDOW_MS;
+}
+
 async function start(since: SyncSince, options: SyncOptions): Promise<JobStatus> {
   const previous = await loadJob();
   let job: JobStatus;
-  if (previous && previous.state !== "done" && sameSince(previous.since, since)) {
+  if (resumable(previous, since)) {
     job = { ...previous, state: "running", error: "", options };
   } else {
     if (running) throw new Error("A sync is already running");
@@ -344,6 +430,15 @@ chrome.runtime.onMessage.addListener((request: Request, sender, sendResponse) =>
   if (sender.id !== chrome.runtime.id || (request.type !== "status" && request.type !== "cancel")) return false;
   return respond(request, sendResponse);
 });
+
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    const found = findGraphqlUrls([details.url]);
+    if (found.conversations || found.messages) void rememberQueryIds(found);
+    return undefined;
+  },
+  { urls: [GRAPHQL_PATTERN], types: ["xmlhttprequest"] },
+);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) void runJob();

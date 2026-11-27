@@ -33,6 +33,7 @@ describe("text cleaning", () => {
       url: "https://www.linkedin.com/in/omar-khalil-dev",
       slug: "omar-khalil-dev",
     });
+    expect(cleanProfileUrl("https://www.linkedin.com/in/ACoAAB2xYz123456789abcdef").slug).toBe("");
     expect(greetingName("dr. sara", "")).toBe("Sara");
   });
 

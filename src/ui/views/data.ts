@@ -56,11 +56,17 @@ async function importExportFiles(ctx: Ctx, files: File[]): Promise<void> {
 async function finishSync(ctx: Ctx, job: JobStatus): Promise<void> {
   const payload = await ctx.busy("نقل البيانات من الـ Extension…", (progress) => collectResult(job, progress));
   if (!payload) return;
+  let people = 0;
+  let messages = 0;
   ctx.store.update((s) => {
+    const known = new Set(s.dataset.connections.map((c) => cleanProfileUrl(c.profileUrl).slug).filter(Boolean));
+    const before = s.dataset.messages.length;
     s.dataset = mergeSync(s.dataset, payload);
+    people = payload.connections.filter((c) => !known.has(c.slug)).length;
+    messages = s.dataset.messages.length - before;
   });
   await clearExtensionData().catch(() => undefined);
-  ctx.toast(`تمت المزامنة: ${fmtNumber(payload.connections.length)} شخص جديد/محدّث، ${fmtNumber(payload.messages.length)} رسالة جديدة`);
+  ctx.toast(`تمت المزامنة: ${fmtNumber(people)} شخص جديد، ${fmtNumber(payload.connections.length - people)} تحدّثت بياناتهم، ${fmtNumber(messages)} رسالة جديدة`);
   for (const n of payload.notes) ctx.toast(n);
 }
 

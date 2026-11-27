@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Reads your own LinkedIn connections and messages, with your own session, and hands them to the LinkedIn Network tool.",
   "minimum_chrome_version": "116",
-  "permissions": ["scripting", "storage", "alarms", "unlimitedStorage"],
+  "permissions": ["scripting", "storage", "alarms", "unlimitedStorage", "webRequest"],
   "host_permissions": ["https://www.linkedin.com/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_title": "LinkedIn Network Sync", "default_popup": "popup.html" },

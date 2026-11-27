@@ -1,5 +1,5 @@
 import { asRecord, asString } from "./profile";
-import { splitHeadline } from "./text";
+import { nameKey, splitHeadline } from "./text";
 import type { Dataset, ExportImport, Party, RawConnection, StoredMessage } from "./types";
 
 export interface SyncConnection {
@@ -38,6 +38,15 @@ export function emptyDataset(): Dataset {
   };
 }
 
+export function conversationKey(id: string): string {
+  return /,([^,()]+)\)$/.exec(id)?.[1] ?? id;
+}
+
+function messageKey(m: { id: string; conversationId: string; at: string }): string {
+  const conversation = conversationKey(m.conversationId);
+  return conversation ? `${conversation}|${m.at.slice(0, 19)}` : `id|${m.id}`;
+}
+
 function sortMessages(list: StoredMessage[]): StoredMessage[] {
   return list.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 }
@@ -51,11 +60,12 @@ export function mergeExport(current: Dataset, imported: ExportImport): Dataset {
   if (!owner.slug && imported.owner.slug) owner.slug = imported.owner.slug;
 
   const knownIds = new Set(imported.messages.map((m) => m.id));
+  const knownKeys = new Set(imported.messages.map(messageKey));
   const knownInvites = new Set(imported.invitations.map((i) => i.id));
   return {
     owner,
     connections: [...current.connections.filter((c) => c.origin !== "export"), ...imported.connections],
-    messages: sortMessages([...current.messages.filter((m) => m.origin !== "export" && !knownIds.has(m.id)), ...imported.messages]),
+    messages: sortMessages([...current.messages.filter((m) => m.origin !== "export" && !knownIds.has(m.id) && !knownKeys.has(messageKey(m))), ...imported.messages]),
     invitations: [...current.invitations.filter((i) => i.origin !== "export" && !knownInvites.has(i.id)), ...imported.invitations],
     importMeta: imported.meta,
     sync: current.sync,
@@ -96,13 +106,18 @@ export function mergeSync(current: Dataset, payload: SyncPayload): Dataset {
   }
 
   const ids = new Set(current.messages.map((m) => m.id));
+  const keys = new Set(current.messages.map(messageKey));
+  const ownerKey = nameKey(owner.name);
+  const isOwner = (p: Party): boolean => (owner.slug !== "" && p.slug === owner.slug) || (p.slug === "" && ownerKey !== "" && nameKey(p.name) === ownerKey);
   const added: StoredMessage[] = [];
   let newestMessage = current.sync.newestMessageAt;
   for (const m of payload.messages) {
-    if (ids.has(m.id)) continue;
-    ids.add(m.id);
-    added.push({ ...m, outgoing: owner.slug !== "" && m.from.slug === owner.slug, origin: "linkedin" });
     newestMessage = maxIso(newestMessage, m.at);
+    const key = messageKey(m);
+    if (ids.has(m.id) || keys.has(key)) continue;
+    ids.add(m.id);
+    keys.add(key);
+    added.push({ ...m, outgoing: isOwner(m.from), origin: "linkedin" });
   }
 
   return {

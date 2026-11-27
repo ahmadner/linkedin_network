@@ -3,6 +3,10 @@ export interface Party {
   slug: string;
 }
 
+export interface Owner extends Party {
+  memberId: string;
+}
+
 export interface CollectedConnection {
   slug: string;
   firstName: string;
@@ -42,7 +46,7 @@ export interface JobStatus {
   finishedAt: string;
   since: SyncSince;
   options: SyncOptions;
-  owner: Party;
+  owner: Owner;
   counts: { connections: number; conversations: number; messages: number };
   cursor: { connectionsStart: number; conversationsBefore: number; conversationIndex: number };
   notes: string[];

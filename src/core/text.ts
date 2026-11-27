@@ -146,9 +146,12 @@ export function cleanEmail(email: string): { email: string; valid: boolean } {
   return { email: e, valid: EMAIL_RE.test(e) };
 }
 
+const MEMBER_ID_SLUG = /^ACoA[A-Za-z0-9_-]{10,}$/;
+
 export function slugOf(url: string): string {
   const m = PROFILE_RE.exec(url || "");
-  return m?.[1] ? m[1].replace(/\/+$/, "").toLowerCase() : "";
+  const slug = m?.[1]?.replace(/\/+$/, "") ?? "";
+  return slug && !MEMBER_ID_SLUG.test(slug) ? slug.toLowerCase() : "";
 }
 
 export function cleanProfileUrl(url: string): { url: string; slug: string } {

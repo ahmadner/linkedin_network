@@ -1,4 +1,4 @@
-import type { CollectedConnection, CollectedMessage, Party } from "./protocol";
+import type { CollectedConnection, CollectedMessage, Owner, Party } from "./protocol";
 
 type Obj = Record<string, unknown>;
 
@@ -63,9 +63,21 @@ export class Graph {
   }
 }
 
+const MEMBER_ID_RE = /ACoA[A-Za-z0-9_-]{10,}/;
+
+export function memberIdOf(...values: unknown[]): string {
+  for (const v of values) {
+    const m = typeof v === "string" ? MEMBER_ID_RE.exec(v) : null;
+    if (m) return m[0];
+  }
+  return "";
+}
+
 export function slugFromUrl(url: string): string {
   const m = /linkedin\.com\/in\/([^/?#]+)/i.exec(url);
-  return m?.[1] ? decodeURIComponent(m[1]).toLowerCase() : "";
+  if (!m?.[1]) return "";
+  const slug = decodeURIComponent(m[1]);
+  return /^ACoA[A-Za-z0-9_-]{10,}$/.test(slug) ? "" : slug.toLowerCase();
 }
 
 function isoDay(ms: number): string {
@@ -98,29 +110,46 @@ export function parseConnections(json: unknown): CollectedConnection[] {
   return [...out.values()];
 }
 
-export function parseMe(json: unknown): Party {
+export function parseMe(json: unknown): Owner {
   const g = new Graph(json);
   for (const obj of g.all) {
     const p = profileFrom(obj);
-    if (p) return { slug: p.slug, name: `${p.firstName} ${p.lastName}`.trim() };
+    if (p) return { slug: p.slug, name: `${p.firstName} ${p.lastName}`.trim(), memberId: memberIdOf(obj.entityUrn, obj.dashEntityUrn, obj.objectUrn) };
   }
-  return { slug: "", name: "" };
+  return { slug: "", name: "", memberId: "" };
 }
 
-export function participantParty(g: Graph, obj: Obj | null): Party {
-  if (!obj) return { name: "", slug: "" };
+export interface ParsedParty extends Party {
+  memberId: string;
+}
+
+export function participantParty(g: Graph, obj: Obj | null): ParsedParty {
+  if (!obj) return { name: "", slug: "", memberId: "" };
   const type = g.field(obj, "participantType");
   const member = type ? g.field(type, "member") : null;
   const source = member ?? obj;
   const name = `${textOf(source.firstName)} ${textOf(source.lastName)}`.trim() || textOf(source.name);
-  const slug = slugFromUrl(str(source.profileUrl) || str(obj.profileUrl)) || str(source.publicIdentifier).toLowerCase();
-  return { name, slug };
+  const profileUrl = str(source.profileUrl) || str(obj.profileUrl);
+  const slug = slugFromUrl(profileUrl) || str(source.publicIdentifier).toLowerCase();
+  const memberId = memberIdOf(obj.hostIdentityUrn, obj.backendUrn, obj.entityUrn, source.entityUrn, profileUrl);
+  return { name, slug, memberId };
+}
+
+function samePerson(a: ParsedParty, b: ParsedParty): boolean {
+  if (a.memberId && b.memberId) return a.memberId === b.memberId;
+  if (a.slug && b.slug) return a.slug === b.slug;
+  return a.name !== "" && a.name === b.name;
+}
+
+function asParty(p: ParsedParty, owner: Owner): Party {
+  const isOwner = (owner.memberId !== "" && p.memberId === owner.memberId) || (owner.slug !== "" && p.slug === owner.slug);
+  return isOwner ? { name: owner.name || p.name, slug: owner.slug } : { name: p.name, slug: p.slug };
 }
 
 export interface ParsedConversation {
   urn: string;
   lastActivityAt: number;
-  participants: Party[];
+  participants: ParsedParty[];
 }
 
 export function parseConversations(json: unknown): ParsedConversation[] {
@@ -137,7 +166,7 @@ export function parseConversations(json: unknown): ParsedConversation[] {
   return [...out.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 }
 
-export function parseMessages(json: unknown, conversations: Map<string, ParsedConversation>): CollectedMessage[] {
+export function parseMessages(json: unknown, conversations: Map<string, ParsedConversation>, owner: Owner): CollectedMessage[] {
   const g = new Graph(json);
   const out = new Map<string, CollectedMessage>();
   for (const obj of g.all) {
@@ -150,13 +179,13 @@ export function parseMessages(json: unknown, conversations: Map<string, ParsedCo
     const convRef = g.field(obj, "conversation");
     const conversationId = (convRef ? str(convRef.entityUrn) || str(convRef.backendUrn) : "") || str(obj.backendConversationUrn) || str(obj["*conversation"]);
     const conv = conversations.get(conversationId);
-    const to = (conv?.participants ?? []).filter((p) => (p.slug && p.slug !== from.slug) || (!p.slug && p.name !== from.name));
+    const to = (conv?.participants ?? []).filter((p) => !samePerson(p, from));
     out.set(id, {
       id,
       conversationId,
       at: new Date(deliveredAt).toISOString(),
-      from,
-      to,
+      from: asParty(from, owner),
+      to: to.map((p) => asParty(p, owner)),
       content: textOf(obj.body).slice(0, 4000),
     });
   }
@@ -172,9 +201,9 @@ export function findGraphqlUrls(resourceUrls: string[]): QueryIds {
   let conversations = "";
   let messages = "";
   for (const url of resourceUrls) {
-    if (!url.includes("voyagerMessagingGraphQL/graphql")) continue;
-    if (/queryId=messengerConversations\.[0-9a-f]+/.test(url) && url.includes("mailboxUrn")) conversations ||= url;
-    if (/queryId=messengerMessages\.[0-9a-f]+/.test(url) && url.includes("conversationUrn")) messages ||= url;
+    if (!url.includes("voyagerMessagingGraphQL/graphql") || /keywords/i.test(url)) continue;
+    if (/queryId=messengerConversations\.[0-9a-f]+/.test(url) && url.includes("mailboxUrn")) conversations = url;
+    if (/queryId=messengerMessages\.[0-9a-f]+/.test(url) && url.includes("conversationUrn")) messages = url;
   }
   return { conversations, messages };
 }
@@ -189,14 +218,19 @@ function replaceVariable(url: string, name: string, value: string): string {
   return `${url.slice(0, insertAt)}${name}:${value},${url.slice(insertAt)}`;
 }
 
+function removeVariable(url: string, name: string): string {
+  return url.replace(new RegExp(`([(,])${name}:[^,)]+(,?)`), (_, before: string, after: string) => (before === "(" ? "(" : after));
+}
+
 export function conversationsPageUrl(template: string, before: number): string {
-  return before > 0 ? replaceVariable(template, "lastUpdatedBefore", String(before)) : template;
+  return before > 0 ? replaceVariable(template, "lastUpdatedBefore", String(before)) : removeVariable(template, "lastUpdatedBefore");
 }
 
 export function encodeUrn(urn: string): string {
   return encodeURIComponent(urn).replace(/\(/g, "%28").replace(/\)/g, "%29");
 }
 
-export function messagesUrl(template: string, conversationUrn: string): string {
-  return replaceVariable(template, "conversationUrn", encodeUrn(conversationUrn));
+export function messagesUrl(template: string, conversationUrn: string, nowMs = Date.now()): string {
+  const url = replaceVariable(template, "conversationUrn", encodeUrn(conversationUrn));
+  return /deliveredAt:/.test(url) ? replaceVariable(url, "deliveredAt", String(nowMs + 60_000)) : url;
 }

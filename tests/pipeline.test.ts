@@ -122,4 +122,24 @@ describe("analysis", () => {
     expect(analysis.contacts.find((c) => c.slug === "new-person")!.mode).toBe("reconnect");
     expect(analysis.contacts).toHaveLength(20);
   });
+
+  it("does not double count synced copies of exported messages", async () => {
+    const { dataset } = await run();
+    const exported = dataset.messages.find((m) => m.conversationId === "c-0001")!;
+    const merged = mergeSync(dataset, {
+      collectedAt: "2026-11-27T10:00:00Z",
+      owner: { name: "Ahmad Nueirat", slug: "ahmad-nueirat" },
+      connections: [],
+      messages: [
+        { id: "urn:li:msg_message:1", conversationId: "urn:li:msg_conversation:(urn:li:fsd_profile:ME,c-0001)", at: `${exported.at.slice(0, 19)}.512Z`, from: exported.from, to: exported.to, content: exported.content },
+        { id: "urn:li:msg_message:2", conversationId: "urn:li:msg_conversation:(urn:li:fsd_profile:ME,c-0001)", at: "2026-11-26T12:00:00.000Z", from: { name: "Ahmad Nueirat", slug: "" }, to: [{ name: "Lina Haddad", slug: "" }], content: "new" },
+      ],
+      notes: [],
+    });
+    expect(merged.messages).toHaveLength(dataset.messages.length + 1);
+    expect(merged.messages.find((m) => m.id === "urn:li:msg_message:2")!.outgoing).toBe(true);
+    expect(merged.sync.newestMessageAt).toBe("2026-11-26T12:00:00.000Z");
+    const reimported = mergeExport(merged, await importExport(sampleFiles(), "sample"));
+    expect(reimported.messages).toHaveLength(dataset.messages.length + 1);
+  });
 });
