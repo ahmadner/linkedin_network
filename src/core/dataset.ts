@@ -65,6 +65,28 @@ function messageKey(m: { id: string; conversationId: string; at: string }): stri
   return conversation ? `${conversation}|${m.at.slice(0, 19)}` : `id|${m.id}`;
 }
 
+const MEMBER_ID_SLUG = /^acoa[a-z0-9_-]{10,}$/i;
+
+function cleanParty(p: Party): Party {
+  return MEMBER_ID_SLUG.test(p.slug) ? { name: p.name, slug: "" } : p;
+}
+
+export function repairMessages(dataset: Dataset): Dataset {
+  const ownerKey = nameKey(dataset.owner.name);
+  const ownerSlug = dataset.owner.slug;
+  const isOwner = (p: Party): boolean => (ownerSlug !== "" && p.slug === ownerSlug) || (p.slug === "" && ownerKey !== "" && nameKey(p.name) === ownerKey);
+  let changed = false;
+  const messages = dataset.messages.map((m) => {
+    const from = cleanParty(m.from);
+    const to = m.to.map(cleanParty);
+    const outgoing = m.origin === "linkedin" ? isOwner(from) : m.outgoing;
+    if (from === m.from && to.every((p, i) => p === m.to[i]) && outgoing === m.outgoing) return m;
+    changed = true;
+    return { ...m, from, to, outgoing };
+  });
+  return changed ? { ...dataset, messages } : dataset;
+}
+
 function sortMessages(list: StoredMessage[]): StoredMessage[] {
   return list.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 }

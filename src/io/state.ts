@@ -1,7 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { parse, stringify } from "yaml";
 import { DEFAULT_MODEL } from "../ai/openai";
-import { emptyDataset, sanitizePhotos } from "../core/dataset";
+import { emptyDataset, repairMessages, sanitizePhotos } from "../core/dataset";
 import { STAGES, TONES } from "../core/conversation";
 import { normalizeTags } from "../core/tags";
 import { TEMPLATE_IDS, type TemplateId } from "../core/templates";
@@ -326,6 +326,8 @@ function sanitizeState(sections: Sections): AppState {
     },
     photos: sanitizePhotos(asRecord(sections.photos)),
   };
+
+  state.dataset = repairMessages(state.dataset);
 
   const tracking = asRecord(sections.tracking);
   state.tracking = recordOf(tracking.tracking, sanitizeTracking);

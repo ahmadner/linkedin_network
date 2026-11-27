@@ -77,4 +77,20 @@ describe("csv export", () => {
     state.dataset.photos = { ...state.dataset.photos, evil: "https://evil.example/x.png", "bad slug": "https://media.licdn.com/x", quote: 'https://media.licdn.com/x"onerror=1' };
     expect(Object.keys(importStateZip(exportStateZip(state)).dataset.photos)).toEqual(["noor-ahmad-hr"]);
   });
+
+  it("repairs synced messages saved with LinkedIn member ids", async () => {
+    const state = await filledState();
+    const input = (st: typeof state) => ({ dataset: st.dataset, profile: st.profile, overrides: st.overrides, tracking: {}, log: [], aiMessages: {}, aiClassifications: {}, today: "2026-11-27" });
+    const before = analyze(input(state)).contacts.find((c) => c.mode === "cold")!;
+    state.dataset.messages.push({
+      id: "urn:li:msg_message:9", conversationId: "urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAME0000000000,2-x)", at: "2026-11-27T09:00:00.000Z", outgoing: false,
+      from: { name: state.dataset.owner.name, slug: "acoaame0000000000" }, to: [{ name: before.fullName, slug: "acoaayou000000000" }], content: "hi", origin: "linkedin",
+    });
+    const restored = importStateZip(exportStateZip(state));
+    const saved = restored.dataset.messages.find((m) => m.id === "urn:li:msg_message:9")!;
+    expect(saved.outgoing).toBe(true);
+    expect(saved.from.slug).toBe("");
+    const after = analyze(input(restored)).contacts.find((c) => c.id === before.id)!;
+    expect(after.mode).toBe("nudge");
+  });
 });
