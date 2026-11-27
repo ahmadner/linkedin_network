@@ -1,6 +1,10 @@
 import type { Worksheet } from "exceljs";
 import type { Analysis, CompanyRow, Contact, MessageSet, Profile } from "../core/types";
+import { STATUSES, REPLIED_VALUES } from "../core/tracking";
 import { toCsv } from "./csv";
+import { parseTrackingRows, TRACKING_FIELDS, type ImportResult, type TrackingValues } from "./imports";
+
+export const TRACKING_SHEET = "Connections";
 
 type Getter<T> = (row: T) => string | number | Date | null;
 export type Column<T> = [header: string, get: Getter<T>, width: number];
@@ -279,34 +283,60 @@ export async function rowsWorkbook<T>(sheetName: string, cols: Array<Column<T>>,
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
 }
 
-export async function readPreviousTracking(buffer: ArrayBuffer): Promise<Map<string, Record<string, string>>> {
+function cellText(value: unknown): string {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value && typeof value === "object") {
+    const v = value as { text?: unknown; result?: unknown; richText?: Array<{ text: string }>; hyperlink?: unknown };
+    if (Array.isArray(v.richText)) return v.richText.map((t) => t.text).join("");
+    if (v.text !== undefined) return cellText(v.text);
+    if (v.result !== undefined) return cellText(v.result);
+    if (typeof v.hyperlink === "string") return v.hyperlink;
+    return "";
+  }
+  return value === null || value === undefined ? "" : String(value);
+}
+
+export async function readTrackingWorkbook(buffer: ArrayBuffer): Promise<ImportResult<Map<string, TrackingValues>>> {
   const { default: ExcelJS } = await import("exceljs");
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
-  const ws = wb.getWorksheet("Connections");
-  const out = new Map<string, Record<string, string>>();
-  if (!ws) return out;
-  const header = (ws.getRow(1).values as unknown[]).map((v) => String(v ?? "").trim());
-  const idx = (name: string): number => header.indexOf(name);
-  const wanted: Record<string, string> = { Status: "status", "Date Sent": "dateSent", "Replied?": "replied", "Next Step": "nextStep", Notes: "notes", Tags: "tags" };
-  const urlIdx = idx("LinkedIn Profile");
-  if (urlIdx < 0) return out;
-  ws.eachRow((row, n) => {
-    if (n === 1) return;
-    const text = (i: number): string => {
-      const v = row.getCell(i).value;
-      if (v instanceof Date) return v.toISOString().slice(0, 10);
-      if (v && typeof v === "object" && "text" in v) return String((v as { text: unknown }).text ?? "");
-      return v === null || v === undefined ? "" : String(v);
-    };
-    const url = text(urlIdx);
-    if (!url) return;
-    const values: Record<string, string> = {};
-    for (const [h, key] of Object.entries(wanted)) {
-      const i = idx(h);
-      if (i >= 0 && text(i)) values[key] = text(i);
-    }
-    if (Object.keys(values).length > 0 && !(Object.keys(values).length === 1 && values.status === "Not started")) out.set(url, values);
-  });
-  return out;
+  try {
+    await wb.xlsx.load(buffer);
+  } catch {
+    return { items: new Map(), issues: [], skipped: 0, error: "الملف مش ملف Excel (xlsx) صالح." };
+  }
+  const ws = wb.getWorksheet(TRACKING_SHEET) ?? wb.worksheets.find((w) => (w.getRow(1).values as unknown[]).some((v) => cellText(v).trim() === "LinkedIn Profile"));
+  if (!ws) return { items: new Map(), issues: [], skipped: 0, error: `ما لقيت ورقة "${TRACKING_SHEET}" ولا ورقة فيها عمود "LinkedIn Profile". نزّل القالب وعبّي فيه.` };
+  const width = ws.columnCount;
+  const read = (n: number): string[] => Array.from({ length: width }, (_, i) => cellText(ws.getRow(n).getCell(i + 1).value));
+  const header = read(1).map((v) => v.trim());
+  const rows: string[][] = [];
+  for (let n = 2; n <= ws.rowCount; n += 1) rows.push(read(n));
+  return parseTrackingRows(header, rows);
+}
+
+export async function trackingTemplateWorkbook(contacts: Contact[]): Promise<ArrayBuffer> {
+  const { default: ExcelJS } = await import("exceljs");
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(TRACKING_SHEET, { views: [{ state: "frozen", ySplit: 1 }] });
+  ws.columns = TRACKING_FIELDS.map((f) => ({ header: f.header, key: f.header, width: f.header === "LinkedIn Profile" ? 42 : f.header === "Notes" || f.header === "Next Step" ? 34 : 18 }));
+  ws.getRow(1).font = { bold: true };
+  const rows = contacts.length > 0
+    ? contacts.map((c) => [c.fullName, c.profileUrl, c.tracking.status, c.tracking.dateSent, c.tracking.replied, c.tracking.nextStep, c.tracking.notes, c.tracking.tags.join(", ")])
+    : [TRACKING_FIELDS.map((f) => f.example)];
+  ws.addRows(rows);
+  const last = Math.max(rows.length + 1, 500);
+  const statusList = `"${STATUSES.join(",")}"`;
+  const repliedList = `"${REPLIED_VALUES.join(",")}"`;
+  for (let n = 2; n <= last; n += 1) {
+    ws.getCell(n, 3).dataValidation = { type: "list", allowBlank: true, formulae: [statusList], showErrorMessage: false };
+    ws.getCell(n, 5).dataValidation = { type: "list", allowBlank: true, formulae: [repliedList], showErrorMessage: false };
+  }
+  const guide = wb.addWorksheet("اقرأني", { views: [{ rightToLeft: true }] });
+  guide.columns = [{ header: "العمود", width: 22 }, { header: "ضروري؟", width: 10 }, { header: "شو تكتب", width: 90 }, { header: "مثال", width: 34 }];
+  guide.getRow(1).font = { bold: true };
+  guide.addRows(TRACKING_FIELDS.map((f) => [f.header, f.required ? "نعم" : "لا", f.help, f.example]));
+  guide.addRow([]);
+  guide.addRow(["ملاحظة", "", "لا تغيّر أسماء الأعمدة بأول سطر. السطر اللي رابطه example-person مثال وبيتجاهله النظام. الأشخاص اللي حالتهم Not started وما في إلهم بيانات ثانية بيتجاهلوا."]);
+  guide.getColumn(3).alignment = { wrapText: true, vertical: "top" };
+  return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
 }
