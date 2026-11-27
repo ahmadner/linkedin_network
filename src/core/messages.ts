@@ -205,8 +205,10 @@ export class ProfileVoice {
 
   protected signature(lang: Lang): string {
     const m = this.profile.messaging;
+    const me = this.profile.me;
     const sig = (lang === "ar" ? m.signature_ar : m.signature_en).trim();
-    return sig || this.profile.me.first_name.trim() || this.profile.me.full_name.trim();
+    const native = lang === "ar" ? me.first_name_ar.trim() || me.full_name_ar.trim() : "";
+    return sig || native || me.first_name.trim() || me.full_name.trim();
   }
 
   protected greeting(name: string, lang: Lang): string {

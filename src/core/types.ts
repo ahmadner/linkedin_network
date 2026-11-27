@@ -7,6 +7,8 @@ export type SourceOrigin = "linkedin" | "export";
 export interface MeProfile {
   full_name: string;
   first_name: string;
+  full_name_ar: string;
+  first_name_ar: string;
   headline: string;
   current_role: string;
   current_company: string;

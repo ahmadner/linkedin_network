@@ -7,7 +7,10 @@ import { STAGES, TONES } from "../core/conversation";
 import type { AiClassification, AiMessage, AiSuggestions, AiTemplate, CompanyRow, Contact, ConversationAnalysis, ConversationStage, ConversationTone, MessageSet, Profile, StoredMessage } from "../core/types";
 import { chatJson, type AiConfig } from "./openai";
 
+const NAME_RULE = "The user's name is given as name_en and name_ar (first_name_en and first_name_ar). Use the Arabic spelling in Arabic text and the English spelling in English text. If name_ar is empty, keep the English spelling and never transliterate it yourself.";
+
 const MESSAGE_SYSTEM = [
+  NAME_RULE,
   "You write LinkedIn outreach messages for the user described in the input.",
   "Write natural, warm, professional messages that are specific to the recipient's role, company and industry.",
   "Arabic text must be natural Levantine (Jordanian) Arabic as people write on LinkedIn, not formal MSA, and not a literal translation of the English.",
@@ -21,8 +24,10 @@ const MESSAGE_SYSTEM = [
 function myFacts(profile: Profile): Record<string, unknown> {
   const me = profile.me;
   return {
-    name: me.full_name,
-    first_name: me.first_name,
+    name_en: me.full_name,
+    first_name_en: me.first_name,
+    name_ar: me.full_name_ar,
+    first_name_ar: me.first_name_ar,
     headline: me.headline,
     current_role: me.current_role,
     current_company: me.current_company,
@@ -34,7 +39,7 @@ function myFacts(profile: Profile): Record<string, unknown> {
     cv_link: me.cv_link,
     portfolio_link: me.portfolio_link,
     goal: profile.targeting.goal,
-    signature_ar: profile.messaging.signature_ar || me.first_name,
+    signature_ar: profile.messaging.signature_ar || me.first_name_ar || me.first_name,
     signature_en: profile.messaging.signature_en || me.first_name,
   };
 }
@@ -87,6 +92,7 @@ export async function generateMessages(contact: Contact, profile: Profile, histo
 }
 
 const TEMPLATE_SYSTEM = [
+  NAME_RULE,
   "You write one LinkedIn direct message for the user described in the input, for the purpose given in the input.",
   "Make it specific to the recipient's role, company and industry, warm, confident and short enough to read on a phone.",
   "Arabic text must be natural Levantine (Jordanian) Arabic as people write on LinkedIn, not formal MSA, and not a literal translation of the English.",
@@ -130,6 +136,7 @@ export async function generateTemplate(contact: Contact, profile: Profile, histo
 }
 
 const ANALYZE_SYSTEM = [
+  NAME_RULE,
   "You read a LinkedIn conversation between the user (\"me\") and one contact (\"them\"), oldest message first, and judge where it stands for the user's goal.",
   `Pick stage from: ${STAGES.join(", ")}. waiting_me means they wrote last and expect an answer; waiting_them means the user wrote last; opportunity means a job, referral, interview or meeting is on the table; gone_cold means no activity for a long time without closure.`,
   `Pick tone from: ${TONES.join(", ")}, judging how the contact feels about the user.`,

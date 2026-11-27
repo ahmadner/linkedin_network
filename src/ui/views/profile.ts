@@ -6,8 +6,10 @@ import { card, type Ctx } from "../context";
 import { field, h, numberInput, select, textArea, textInput } from "../dom";
 
 const ME_FIELDS: Array<[keyof MeProfile, string, "text" | "list" | "number" | "area"]> = [
-  ["full_name", "اسمك الكامل", "text"],
-  ["first_name", "اسمك الأول (للتوقيع)", "text"],
+  ["full_name", "اسمك الكامل (English)", "text"],
+  ["first_name", "اسمك الأول (English، للتوقيع)", "text"],
+  ["full_name_ar", "اسمك الكامل بالعربي", "text"],
+  ["first_name_ar", "اسمك الأول بالعربي (للتوقيع)", "text"],
   ["headline", "الـ Headline", "text"],
   ["current_role", "دورك الحالي أو المستهدف", "text"],
   ["current_company", "شركتك الحالية", "text"],

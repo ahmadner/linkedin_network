@@ -15,6 +15,8 @@ export function defaultProfile(): Profile {
     me: {
       full_name: "",
       first_name: "",
+      full_name_ar: "",
+      first_name_ar: "",
       headline: "",
       current_role: "",
       current_company: "",

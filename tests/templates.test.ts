@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { generateTemplate } from "../src/ai/features";
 import { emptyDataset, mergeExport } from "../src/core/dataset";
 import { analyze } from "../src/core/pipeline";
 import { sanitizeProfile } from "../src/core/profile";
@@ -36,5 +37,28 @@ describe("goal templates", () => {
     expect(text.en).toContain("Senior Backend Engineer");
     expect(text.en).toContain(c.companyClean);
     expect(text.ar).toContain("https://jobs.example.com/42");
+  });
+});
+
+describe("arabic name", () => {
+  it("signs Arabic text with the Arabic name and sends both spellings to the AI", async () => {
+    const { profile, contacts } = await load();
+    profile.messaging.signature_ar = "";
+    profile.messaging.signature_en = "";
+    profile.me.first_name_ar = "اسم";
+    profile.me.full_name_ar = "اسم كامل";
+    const text = new TemplateBuilder(profile).build("intro", contacts[0]!, { jobTitle: "", jobLink: "" });
+    expect(text.ar.trim().endsWith("اسم")).toBe(true);
+    expect(text.en.trim().endsWith(profile.me.first_name)).toBe(true);
+
+    let body = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      body = String(init?.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ ar: "a", en: "b" }) } }] }), { status: 200 });
+    }));
+    await generateTemplate(contacts[0]!, profile, [], "intro", { jobTitle: "", jobLink: "" }, { key: "sk-test", model: "gpt-4.1-mini" });
+    vi.unstubAllGlobals();
+    const user = JSON.parse((JSON.parse(body) as { messages: Array<{ content: string }> }).messages[1]!.content) as { me: Record<string, string> };
+    expect(user.me).toMatchObject({ name_ar: "اسم كامل", first_name_ar: "اسم", name_en: profile.me.full_name, signature_ar: "اسم" });
   });
 });
