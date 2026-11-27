@@ -28,6 +28,7 @@ const view = {
   confirmInvites: false,
   status: null as OutboxResponse | null,
   extension: "unknown" as "unknown" | "ready" | "missing",
+  tab: "message" as OutboxKind,
 };
 
 const applied = new Set<string>();
@@ -57,15 +58,18 @@ export function queueMessages(ctx: Ctx, items: Array<{ contact: Contact; text: s
     if (!contact.slug || !text.trim()) continue;
     const draft = { key: contact.id, slug: contact.slug, name: contact.fullName, text: text.trim() };
     const index = view.messages.findIndex((d) => d.key === draft.key);
-    if (index >= 0) view.messages[index] = draft;
-    else if (view.messages.length < MAX_BATCH) {
+    if (index >= 0) {
+      view.messages[index] = draft;
+      added += 1;
+    } else if (view.messages.length < MAX_BATCH) {
       view.messages.push(draft);
       added += 1;
     }
   }
   view.confirmMessages = false;
+  view.tab = "message";
   const skipped = items.length - added;
-  ctx.toast(skipped > 0 ? `انضاف ${fmtNumber(added)} لقائمة الإرسال. ${fmtNumber(skipped)} ما انضافوا (موجودين، أو بدون رابط، أو القائمة وصلت ${MAX_BATCH}).` : `انضاف ${fmtNumber(added)} لقائمة الإرسال`);
+  ctx.toast(skipped > 0 ? `انضاف ${fmtNumber(added)} لقائمة الإرسال. ${fmtNumber(skipped)} ما انضافوا (بدون رابط أو رسالة، أو القائمة وصلت ${MAX_BATCH}).` : `انضاف ${fmtNumber(added)} لقائمة الإرسال`);
   ctx.go("outreach");
 }
 
@@ -140,16 +144,37 @@ async function stop(ctx: Ctx, rerender: () => void): Promise<void> {
 }
 
 function riskNote(): HTMLElement {
-  return h("div", { class: "advice warn-note" },
-    h("strong", {}, "انتبه قبل ما تبعت: "),
-    "الإرسال الآلي ممكن يخالف شروط LinkedIn، والإرسال الكثير أو المتشابه ممكن يوقف حسابك مؤقتًا. عشان هيك الأداة بتبعت واحد كل 45 لـ 120 ثانية، بحد أقصى 25 رسالة و20 طلب تواصل باليوم، وبتوقف لحالها إذا LinkedIn أعطى أي تحذير أو طلب تحقق. راجع كل رسالة قبل ما تبعت، واكتبها شخصية قد ما بتقدر.",
+  return h("details", { class: "advice warn-note" },
+    h("summary", {}, h("strong", {}, "قواعد الأمان: "), "واحد كل 45 لـ 120 ثانية، وبحد أقصى 25 رسالة و20 طلب باليوم."),
+    h("p", {}, "الإرسال الآلي ممكن يخالف شروط LinkedIn، والإرسال الكثير أو المتشابه ممكن يوقف حسابك مؤقتًا. عشان هيك الأداة بتبعت واحد كل 45 لـ 120 ثانية، بحد أقصى 25 رسالة و20 طلب تواصل باليوم، وبتوقف لحالها إذا LinkedIn أعطى أي تحذير أو طلب تحقق. راجع كل رسالة قبل ما تبعت، واكتبها شخصية قد ما بتقدر."),
   );
 }
 
-function usageLine(kind: OutboxKind): HTMLElement | null {
-  const u = view.status?.usage[kind];
-  if (!u) return null;
-  return h("p", { class: "muted small" }, `اليوم: ${fmtNumber(u.day)} من ${fmtNumber(u.limits.day)} · هالأسبوع: ${fmtNumber(u.week)} من ${fmtNumber(u.limits.week)}`);
+function meter(label: string, used: number, limit: number): HTMLElement {
+  const fill = h("span", { class: "bar" });
+  fill.style.inlineSize = `${Math.min(100, Math.round((used / Math.max(1, limit)) * 100))}%`;
+  return h("div", { class: used >= limit ? "meter full" : "meter" },
+    h("span", { class: "meter-label" }, label, h("span", { class: "muted" }, `${fmtNumber(used)} / ${fmtNumber(limit)}`)),
+    h("span", { class: "bar-track", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": limit, "aria-valuenow": used, "aria-label": label }, fill));
+}
+
+function statusBar(rerender: () => void): HTMLElement {
+  const usage = view.status?.usage;
+  const state = view.extension;
+  return h("section", { class: "card status-bar" },
+    h("div", { class: "status-ext" },
+      h("span", { class: `status-dot ${state}` }),
+      h("span", {}, h("strong", {}, state === "ready" ? "الإضافة شغّالة" : state === "missing" ? "الإضافة مش موصولة" : "بفحص الإضافة…"),
+        h("span", { class: "muted small" }, state === "missing" ? "بتقدر تستعمل \"انسخ وافتح\" وتبعت بإيدك." : state === "ready" ? "الإرسال بيصير من متصفحك وبحسابك." : "")),
+      state === "missing" ? h("button", { type: "button", class: "secondary small", onclick: () => { view.extension = "unknown"; rerender(); } }, "جرّب مرة ثانية") : null,
+    ),
+    usage ? h("div", { class: "meters" },
+      meter("رسائل اليوم", usage.message.day, usage.message.limits.day),
+      meter("رسائل الأسبوع", usage.message.week, usage.message.limits.week),
+      meter("طلبات اليوم", usage.invite.day, usage.invite.limits.day),
+      meter("طلبات الأسبوع", usage.invite.week, usage.invite.limits.week),
+    ) : null,
+  );
 }
 
 function remaining(kind: OutboxKind): number {
@@ -223,10 +248,11 @@ function messagesCard(ctx: Ctx, rerender: () => void): HTMLElement {
   };
   return h("section", { class: "card" },
     h("div", { class: "card-head" }, h("h2", {}, `رسائل جاهزة للإرسال (${fmtNumber(view.messages.length)})`)),
-    usageLine("message"),
     jobCard(ctx, rerender, "message"),
     view.messages.length === 0
-      ? h("p", { class: "muted" }, "القائمة فاضية. من تفاصيل أي شخص اضغط \"جهّز للإرسال\" تحت أي رسالة، أو من جهات الاتصال اختار فلتر واضغط \"جهّز رسالة للنتيجة\".")
+      ? h("div", { class: "empty-line" },
+        h("p", {}, "القائمة فاضية. افتح أي شخص واضغط \"جهّز رسالة\"، أو اختار ناس من جهات الاتصال واضغط \"جهّز رسالة\"."),
+        h("button", { type: "button", class: "secondary small", onclick: () => ctx.go("contacts") }, "روح لجهات الاتصال"))
       : h("ul", { class: "drafts" }, view.messages.map((d) => messageRow(ctx, d, rerender))),
     view.messages.length > 0 ? h("div", {},
       view.messages.length > left && ready ? h("p", { class: "muted small" }, `باقيلك ${fmtNumber(left)} رسالة اليوم، فالباقي بضل بالقائمة.`) : null,
@@ -286,8 +312,11 @@ function invitesCard(ctx: Ctx, rerender: () => void): HTMLElement {
 
   return h("section", { class: "card" },
     h("div", { class: "card-head" }, h("h2", {}, "طلبات تواصل لناس من مجالك")),
-    h("p", { class: "muted small" }, "1) افتح بحث أشخاص على LinkedIn (درجة ثانية بس). 2) ارجع هون واضغط \"اسحب الأشخاص\". 3) راجع القائمة واختار مين، واكتب نوت إذا بدك. الأشخاص الي بشبكتك أصلًا بيطلعوا لحالهم."),
-    usageLine("invite"),
+    h("ol", { class: "how" },
+      h("li", {}, "اكتب شو بدك تدور وافتح البحث على LinkedIn (درجة ثانية بس)."),
+      h("li", {}, "ارجع هون واضغط \"اسحب الأشخاص\". اللي بشبكتك أصلًا بيطلعوا لحالهم."),
+      h("li", {}, "راجع القائمة، اختار مين، واكتب نوت إذا بدك، وبعدين ابعت."),
+    ),
     jobCard(ctx, rerender, "invite"),
     h("div", { class: "row tight wrap" },
       search,
@@ -330,14 +359,12 @@ function invitesCard(ctx: Ctx, rerender: () => void): HTMLElement {
 
 export function renderOutreach(ctx: Ctx, rerender: () => void): HTMLElement {
   if (view.extension === "unknown" || (view.status?.job?.state === "running" && !poller)) void refresh(ctx, rerender);
+  const tabs: Array<[OutboxKind, string, number]> = [["message", "الرسائل", view.messages.length], ["invite", "طلبات التواصل", view.candidates.length]];
   return h("div", { class: "view" },
-    view.extension === "missing" ? h("section", { class: "card" },
-      h("p", {}, badge("الـ Extension مش مركّب أو مش مسموح لهاد الموقع", "bad")),
-      h("p", { class: "muted small" }, "بدون الـ Extension بتقدر تستعمل \"انسخ وافتح\": بتنسخ الرسالة وبتفتح المحادثة أو البروفايل، وإنت بتلصقها وبتبعتها بإيدك."),
-      h("button", { type: "button", class: "secondary", onclick: () => { view.extension = "unknown"; rerender(); } }, "جرّب مرة ثانية"),
-    ) : null,
+    statusBar(rerender),
     riskNote(),
-    messagesCard(ctx, rerender),
-    invitesCard(ctx, rerender),
+    h("div", { class: "presets", role: "group", "aria-label": "نوع الإرسال" }, tabs.map(([id, label, n]) =>
+      h("button", { type: "button", "aria-pressed": String(view.tab === id), onclick: () => { view.tab = id; rerender(); } }, label, h("span", { class: "preset-count" }, fmtNumber(n))))),
+    view.tab === "message" ? messagesCard(ctx, rerender) : invitesCard(ctx, rerender),
   );
 }

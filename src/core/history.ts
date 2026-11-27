@@ -134,31 +134,32 @@ export function* datasetEvents(dataset: Dataset): Generator<HistoryEvent> {
   }
 }
 
-export function outreachMode(h: ContactHistory, today: string, messageData: boolean): { mode: OutreachMode; advice: string } {
+export function outreachMode(h: ContactHistory, today: string, messageData: boolean): { mode: OutreachMode; advice: string; adviceAr: string } {
   if (!contactedBefore(h)) {
     return messageData
-      ? { mode: "cold", advice: "First contact - safe to send the introduction" }
-      : { mode: "cold", advice: "No message history available - check the thread on LinkedIn before sending" };
+      ? { mode: "cold", advice: "First contact - safe to send the introduction", adviceAr: "أول تواصل بينكم. رسالة التعريف مناسبة." }
+      : { mode: "cold", advice: "No message history available - check the thread on LinkedIn before sending", adviceAr: "ما في سجل رسائل. افتح المحادثة على LinkedIn وتأكد قبل ما تبعت." };
   }
   const days = h.lastContact ? daysBetween(h.lastContact, today) : null;
   const when = days === null ? "date unknown" : `${days} days ago`;
+  const whenAr = days === null ? "تاريخ مش معروف" : `قبل ${days} يوم`;
 
   if (h.sentByMe > 0 && h.received === 0) {
     if (days !== null && days < 30) {
-      return { mode: "nudge", advice: `You wrote ${when} and got no reply - do not write again yet, wait at least a month` };
+      return { mode: "nudge", advice: `You wrote ${when} and got no reply - do not write again yet, wait at least a month`, adviceAr: `بعتتله ${whenAr} وما رد. لا تبعت هلأ، استنى شهر على الأقل.` };
     }
-    return { mode: "nudge", advice: `You wrote ${when} and never got a reply - one short nudge only, do not repeat the pitch` };
+    return { mode: "nudge", advice: `You wrote ${when} and never got a reply - one short nudge only, do not repeat the pitch`, adviceAr: `بعتتله ${whenAr} وما رد أبدًا. ابعت تذكير قصير وحدة بس، بدون ما تعيد العرض.` };
   }
   if (h.received > 0 && h.sentByMe === 0) {
-    return { mode: "reconnect", advice: `They wrote to you (${when}) and you did not answer - reply to the existing thread` };
+    return { mode: "reconnect", advice: `They wrote to you (${when}) and you did not answer - reply to the existing thread`, adviceAr: `هو حكى معك (${whenAr}) وانت ما رديت. رد على نفس المحادثة.` };
   }
   if (h.sentByMe === 0 && h.received === 0) {
     return h.invitationSent
-      ? { mode: "cold", advice: `Only an invitation was sent (${when}), never a message - the introduction is still new to them` }
-      : { mode: "cold", advice: `They invited you (${when}) but no message was ever exchanged - the introduction is still new to them` };
+      ? { mode: "cold", advice: `Only an invitation was sent (${when}), never a message - the introduction is still new to them`, adviceAr: `بعتتله دعوة بس (${whenAr}) بدون رسالة. التعريف لسا جديد عليه.` }
+      : { mode: "cold", advice: `They invited you (${when}) but no message was ever exchanged - the introduction is still new to them`, adviceAr: `هو بعتلك دعوة (${whenAr}) بس ما في رسائل. التعريف لسا جديد عليه.` };
   }
   if (days !== null && days <= 60) {
-    return { mode: "reconnect", advice: `You spoke ${when} - recent conversation, continue it instead of pitching from scratch` };
+    return { mode: "reconnect", advice: `You spoke ${when} - recent conversation, continue it instead of pitching from scratch`, adviceAr: `حكيتوا ${whenAr}. المحادثة قريبة، كمّلها بدل ما تبلش من الصفر.` };
   }
-  return { mode: "reconnect", advice: `You spoke before (${when}) and they replied - reconnect, do not introduce yourself again` };
+  return { mode: "reconnect", advice: `You spoke before (${when}) and they replied - reconnect, do not introduce yourself again`, adviceAr: `حكيتوا ${whenAr} وردّ عليك. ارجع احكي معه بدون ما تعرّف عن حالك من جديد.` };
 }

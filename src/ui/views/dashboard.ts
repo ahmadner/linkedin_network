@@ -1,7 +1,7 @@
 import { countBy, messageActivity, networkGrowth, replyStats } from "../../core/stats";
 import { buildWorkbook, XLSX_TYPE, type Column } from "../../io/excel";
 import { columnChart } from "../charts";
-import { card, exportLinks, MODE_AR, type Ctx } from "../context";
+import { exportLinks, MODE_AR, noData, type Ctx } from "../context";
 import { download, fmtNumber, h } from "../dom";
 
 type Count = [string, number];
@@ -26,7 +26,7 @@ function bars(ctx: Ctx, title: string, name: string, all: Count[], limit = 12, n
 }
 
 export function renderDashboard(ctx: Ctx): HTMLElement {
-  if (!ctx.store.hasData) return h("div", { class: "view" }, card("ما في بيانات لسا", h("p", {}, "ارفع ملف الـ Export أول.")));
+  if (!ctx.store.hasData) return noData(ctx);
   const { contacts, companies } = ctx.store.analysis;
   const messages = ctx.store.state.dataset.messages;
   const kpi = (label: string, value: string, note: string): HTMLElement => h("div", { class: "kpi" }, h("span", {}, label), h("strong", {}, value), h("small", {}, note));

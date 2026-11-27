@@ -157,7 +157,7 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
     ),
     h("p", { class: "muted small" }, "الـ Extension بيقرا بياناتك انت بس، بجلستك، ببطء وعلى دفعات. ما بيعدّل ولا بيبعت أي شي على LinkedIn. بس استخدام أدوات آلية تقنيًا ضد شروط LinkedIn، فالخطر صغير بس مش صفر."),
   ]);
-  return card("٢. تحديث مباشر من LinkedIn (Chrome Extension)", body);
+  return card(ctx.store.hasData ? "المزامنة من LinkedIn" : "٢. تحديث مباشر من LinkedIn (Chrome Extension)", body);
 }
 
 function stats(ctx: Ctx): HTMLElement {
@@ -240,7 +240,11 @@ export function renderData(ctx: Ctx, rerender: () => void): HTMLElement {
   const dropZone = h("div", { class: "drop", tabindex: 0, role: "button" }, h("strong", {}, "اسحب ملف الـ Export هون أو اضغط للاختيار"), h("span", { class: "muted" }, "ملف .zip كامل، أو Connections.csv و messages.csv و Invitations.csv"));
   const choose = async (): Promise<void> => importExportFiles(ctx, await pickFiles(".zip,.csv", true));
   dropZone.addEventListener("click", () => void choose());
-  dropZone.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && void choose());
+  dropZone.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    void choose();
+  });
   dropZone.addEventListener("dragover", (e) => {
     e.preventDefault();
     dropZone.classList.add("over");
@@ -271,15 +275,18 @@ export function renderData(ctx: Ctx, rerender: () => void): HTMLElement {
     ctx.toast("انمسحت البيانات المحلية");
   };
 
-  return h("div", { class: "view" },
-    stats(ctx),
-    card("١. أول تحميل: ملف الـ Export من LinkedIn",
+  const exportCard = card(ctx.store.hasData ? "ملف الـ Export من LinkedIn" : "١. أول تحميل: ملف الـ Export من LinkedIn",
       h("p", {}, "أسرع طريقة لسحب كل الأشخاص وكل الرسائل دفعة وحدة. من LinkedIn: Settings & Privacy ← Data privacy ← Get a copy of your data، واختار Connections و Messages و Invitations."),
       dropZone,
       ctx.store.state.dataset.importMeta.exportLabel ? h("p", { class: "muted small" }, `آخر ملف: ${ctx.store.state.dataset.importMeta.exportLabel}`) : null,
-    ),
-    extensionCard(ctx, rerender),
-    card("٣. الحفظ والاسترجاع",
+  );
+  const sources = ctx.store.hasData ? [extensionCard(ctx, rerender), exportCard] : [exportCard, extensionCard(ctx, rerender)];
+
+  return h("div", { class: "view" },
+    ctx.store.hasData ? stats(ctx) : null,
+    h("div", { class: "cards-grid" }, sources),
+    h("div", { class: "cards-grid" },
+    card(ctx.store.hasData ? "الحفظ والاسترجاع" : "٣. الحفظ والاسترجاع",
       h("p", {}, "كل شي بينحفظ تلقائيًا بهاد المتصفح. للنقل لجهاز ثاني أو كنسخة احتياطية، نزّل ملف zip فيه ملف YAML لكل نوع بيانات (الأشخاص، الرسائل، الدعوات، بروفايلك، المتابعة، الذكاء الاصطناعي، ونقطة آخر مزامنة)، وارفعه لاحقًا عشان تكمل من حيث وقفت."),
       h("div", { class: "row" },
         h("button", { type: "button", onclick: () => void saveState() }, "تنزيل ملف الحفظ (zip)"),
@@ -293,7 +300,13 @@ export function renderData(ctx: Ctx, rerender: () => void): HTMLElement {
         h("button", { type: "button", class: "secondary", onclick: () => void importPreviousReport(ctx) }, "متابعة من تقرير Excel قديم"),
         h("button", { type: "button", class: "secondary", onclick: () => void importProfileJson(ctx) }, "بروفايل من my_profile.json"),
       ),
-      h("div", { class: "row" }, h("button", { type: "button", class: "danger", onclick: () => void reset() }, "مسح كل البيانات المحلية")),
+    ),
+    ),
+    h("section", { class: "card danger-zone" },
+      h("div", { class: "card-head" },
+        h("div", {}, h("h2", {}, "مسح البيانات"), h("p", { class: "muted small" }, "بيمسح كل شي من هاد المتصفح. نزّل ملف الحفظ أول.")),
+        h("button", { type: "button", class: "danger", onclick: () => void reset() }, "مسح كل البيانات المحلية"),
+      ),
     ),
   );
 }

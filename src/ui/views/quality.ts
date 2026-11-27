@@ -1,8 +1,8 @@
-import { card, type Ctx } from "../context";
+import { card, noData, type Ctx } from "../context";
 import { fmtNumber, h } from "../dom";
 
 export function renderQuality(ctx: Ctx): HTMLElement {
-  if (!ctx.store.hasData) return h("div", { class: "view" }, card("ما في بيانات لسا", h("p", {}, "ارفع ملف الـ Export أول.")));
+  if (!ctx.store.hasData) return noData(ctx);
   const { contacts, quality, profileGaps } = ctx.store.analysis;
   const count = (fn: (c: (typeof contacts)[number]) => boolean): string => fmtNumber(contacts.filter(fn).length);
   const rows: Array<[string, string]> = [
@@ -27,7 +27,7 @@ export function renderQuality(ctx: Ctx): HTMLElement {
   const flagged = contacts.filter((c) => c.issues.length > 0).slice(0, 500);
   return h("div", { class: "view" },
     profileGaps.length > 0 ? card("نواقص بملفك", h("ul", {}, profileGaps.map((g) => h("li", {}, g))), h("button", { type: "button", class: "secondary", onclick: () => ctx.go("profile") }, "كمّل ملفك")) : null,
-    card("مصدر البيانات وجودتها", h("table", { class: "grid compact" }, h("tbody", {}, rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v)))))),
+    card("مصدر البيانات وجودتها", h("div", { class: "scroll" }, h("table", { class: "grid compact" }, h("tbody", {}, rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v))))))),
     quality.warnings.length > 0 ? card("ملاحظات", h("ul", {}, quality.warnings.map((w) => h("li", {}, w)))) : null,
     card("حقول LinkedIn ما بيعطيها",
       h("ul", {},

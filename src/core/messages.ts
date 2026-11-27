@@ -403,19 +403,19 @@ export function profileGaps(profile: Profile): string[] {
   const me = profile.me;
   const gaps: string[] = [];
   const required: Array<[keyof typeof me, string]> = [
-    ["full_name", "your name"],
-    ["current_role", "your current/target role"],
-    ["top_skills", "top skills"],
+    ["full_name", "اسمك"],
+    ["current_role", "منصبك الحالي أو اللي بدك ياه"],
+    ["top_skills", "أهم مهاراتك"],
   ];
   const recommended: Array<[keyof typeof me, string]> = [
-    ["years_experience", "years of experience"],
-    ["highlight_ar", "one-line achievement (Arabic)"],
-    ["highlight_en", "one-line achievement (English)"],
-    ["cv_link", "CV link"],
-    ["target_roles", "target roles"],
+    ["years_experience", "سنين الخبرة"],
+    ["highlight_ar", "إنجاز بسطر (عربي)"],
+    ["highlight_en", "إنجاز بسطر (English)"],
+    ["cv_link", "رابط السيرة الذاتية"],
+    ["target_roles", "الوظائف المستهدفة"],
   ];
   const empty = (v: unknown): boolean => (Array.isArray(v) ? v.length === 0 : !v);
-  for (const [key, label] of required) if (empty(me[key])) gaps.push(`REQUIRED: ${label}`);
-  for (const [key, label] of recommended) if (empty(me[key])) gaps.push(`recommended: ${label}`);
+  for (const [key, label] of required) if (empty(me[key])) gaps.push(`ضروري: ${label}`);
+  for (const [key, label] of recommended) if (empty(me[key])) gaps.push(`مستحسن: ${label}`);
   return gaps;
 }
