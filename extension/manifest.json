@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "LinkedIn Network Sync",
-  "version": "1.1.0",
-  "description": "Reads your own LinkedIn connections and messages, with your own session, and hands them to the LinkedIn Network tool.",
+  "version": "1.2.0",
+  "description": "Reads your own LinkedIn connections, messages and posts, with your own session, and hands them to the LinkedIn Network tool.",
   "minimum_chrome_version": "116",
   "permissions": ["scripting", "storage", "alarms", "unlimitedStorage", "webRequest"],
   "host_permissions": ["https://www.linkedin.com/*"],

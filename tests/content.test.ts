@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { generateImage, planContent, planDates, replaceHook, weekdayIndex, writePost } from "../src/ai/content";
+import { finalImagePrompt, freeDates, generateImage, imageModelChain, imageSize, planContent, planDates, planSeries, replaceHook, weekdayIndex, writePost } from "../src/ai/content";
 import {
   contentStats, emptyContent, foldPreview, mergeExportPosts, newDraft, postChecks, postKey, publishText, restoreDraftVersion, sanitizeContent, shareUrl, withHashtags, withVersion, type Post,
 } from "../src/core/content";
@@ -107,13 +107,21 @@ describe("content helpers", () => {
   });
 
   it("sanitizes unknown content safely", () => {
-    const content = sanitizeContent({ posts: [{ id: "x" }, { id: "y", text: "ok" }], drafts: [{ id: "d", status: "weird", format: "bad", hashtags: ["java", "#ok"] }], settings: { postsPerWeek: 99, imageModel: "other" } });
+    const content = sanitizeContent({ posts: [{ id: "x" }, { id: "y", text: "ok" }], drafts: [{ id: "d", status: "weird", format: "bad", hashtags: ["java", "#ok"] }], settings: { postsPerWeek: 99, imageModel: "other", imageQuality: "ultra", imageCount: 9, imageAspect: "wide" }, series: [{ id: "s1", name: "S", parts: [{ title: "P1", format: "bad" }, {}] }, { id: "s2" }] });
     expect(content.posts.map((p) => p.id)).toEqual(["y"]);
     expect(content.drafts[0]?.status).toBe("draft");
     expect(content.drafts[0]?.format).toBe("text");
     expect(content.drafts[0]?.hashtags).toEqual(["#java", "#ok"]);
     expect(content.settings.postsPerWeek).toBe(14);
-    expect(content.settings.imageModel).toBe("gpt-image-1");
+    expect(content.settings.imageModel).toBe("gpt-image-2");
+    expect(content.settings.imageQuality).toBe("medium");
+    expect(content.settings.imageCount).toBe(4);
+    expect(content.settings.imageAspect).toBe("portrait");
+    expect(content.series).toHaveLength(1);
+    expect(content.series[0]?.parts).toEqual([{ title: "P1", hook: "", angle: "", format: "text", why: "" }]);
+    expect(sanitizeContent({ settings: { imageModel: "gpt-image-1" } }).settings.imageModel).toBe("gpt-image-2");
+    expect(sanitizeContent({ settings: { imageModel: "dall-e-3" } }).settings.imageModel).toBe("gpt-image-2");
+    expect(sanitizeContent({ settings: { imageModel: "gpt-image-2.6-aurora" } }).settings.imageModel).toBe("gpt-image-2.6-aurora");
     expect(sanitizeContent(undefined)).toEqual(emptyContent());
   });
 });
@@ -173,12 +181,11 @@ describe("content AI", () => {
   });
 
   it("writes a post and keeps hashtags out of the text", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => reply(200, { choices: [{ message: { content: JSON.stringify({ title: "عنوان", text: "Hook\n\n\n\nBody", hashtags: ["java", "#Java", "spring boot"], image_prompt: "desk", slides: [], poll_options: [] }) } }] })));
+    vi.stubGlobal("fetch", vi.fn(async () => reply(200, { choices: [{ message: { content: JSON.stringify({ title: "عنوان", text: "Hook\n\n\n\nBody", hashtags: ["java", "#Java", "spring boot"], slides: [], poll_options: [] }) } }] })));
     const profile = sanitizeProfile(sampleProfile());
     const result = await writePost({ topic: "t", hook: "", pillar: "", format: "text", lang: "en", tone: "professional", length: "short", details: "" }, profile, [], null, emptyContent().settings, { key: "sk-test", model: "gpt-4.1-mini" });
     expect(result.text).toBe("Hook\n\nBody");
     expect(result.hashtags).toEqual(["#java", "#springboot"]);
-    expect(result.imagePrompt).toBe("desk");
   });
 
   it("only keeps plan items for the requested dates", async () => {
@@ -187,17 +194,71 @@ describe("content AI", () => {
     expect(items.map((i) => [i.date, i.idea.title, i.idea.format])).toEqual([["2026-12-01", "A", "text"], ["2026-12-03", "B", "poll"]]);
   });
 
-  it("falls back to dall-e-3 when gpt-image-1 needs verification", async () => {
+  it("passes the series context to the writer", async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return reply(200, { choices: [{ message: { content: JSON.stringify({ title: "t", text: "Part 2", hashtags: [] }) } }] });
+    }));
+    const series = { name: "Backend Journey", theme: "th", arc: "arc", index: 2, total: 4, angle: "angle 2", previous: [{ title: "P1", text: "first post" }], next: "P3" };
+    await writePost({ topic: "t", hook: "", pillar: "", format: "text", lang: "en", tone: "professional", length: "short", details: "", series }, sanitizeProfile(sampleProfile()), [], null, emptyContent().settings, { key: "sk-test", model: "gpt-4.1-mini" });
+    const user = JSON.parse((JSON.parse(bodies[0]!) as { messages: Array<{ content: string }> }).messages[1]!.content) as { brief: { series: Record<string, unknown> } };
+    expect(user.brief.series).toMatchObject({ name: "Backend Journey", part: "2 of 4", this_part_angle: "angle 2", next_part_title: "P3" });
+  });
+
+  it("plans a series and clamps its parts", async () => {
+    const parts = Array.from({ length: 7 }, (_, i) => ({ title: `Part ${i + 1}`, hook: "h", angle: "a", format: i === 1 ? "carousel" : "weird" }));
+    vi.stubGlobal("fetch", vi.fn(async () => reply(200, { choices: [{ message: { content: JSON.stringify({ name: "سلسلة", theme: "t", arc: "a", parts }) } }] })));
+    const plan = await planSeries({ topic: "", goal: "jobs", count: 5, lang: "ar" }, sanitizeProfile(sampleProfile()), [], null, emptyContent().settings, [], { key: "sk-test", model: "gpt-4.1-mini" });
+    expect(plan.parts).toHaveLength(5);
+    expect(plan.parts.map((p) => p.format).slice(0, 3)).toEqual(["text", "carousel", "text"]);
+    expect(plan.goal).toBe("jobs");
+    expect(plan.lang).toBe("ar");
+  });
+
+  it("finds free dates on the best days and skips taken ones", () => {
+    const dates = freeDates(new Date(2026, 10, 29), 3, 2, [weekdayIndex("الثلاثاء"), weekdayIndex("الخميس")], new Set(["2026-12-01"]));
+    expect(dates).toEqual(["2026-12-03", "2026-12-08", "2026-12-10"]);
+  });
+
+  it("uses LinkedIn sizes per model", () => {
+    expect(imageSize("gpt-image-2", "portrait")).toBe("1024x1280");
+    expect(imageSize("gpt-image-2.5-flare", "landscape")).toBe("1536x800");
+    expect(imageSize("gpt-image-1.5", "portrait")).toBe("1024x1536");
+    expect(imageSize("gpt-image-1-mini", "square")).toBe("1024x1024");
+    for (const size of ["1024x1280", "1536x800"]) expect(size.split("x").every((n) => Number(n) % 16 === 0)).toBe(true);
+    expect(imageModelChain("gpt-image-2.5-sunburst")).toEqual(["gpt-image-2.5-sunburst", "gpt-image-2", "gpt-image-1.5", "gpt-image-1-mini"]);
+  });
+
+  it("builds the final prompt with exact overlay text or no text", () => {
+    const withText = finalImagePrompt("A bridge", "minimal", "square", 'Ship "small"', "navy");
+    expect(withText).toContain(`"Ship 'small'"`);
+    expect(withText).toContain("Color palette: navy.");
+    expect(finalImagePrompt("A bridge", "unknown", "portrait", " ", "")).toContain("No text, letters, numbers");
+  });
+
+  it("falls back through newer image models and returns every variation", async () => {
     const calls: Array<Record<string, unknown>> = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       calls.push(body);
-      if (body.model === "gpt-image-1") return reply(403, { error: { message: "Your organization must be verified to use the model `gpt-image-1`." } });
-      return reply(200, { data: [{ b64_json: "AAAA", revised_prompt: "better" }] });
+      if (body.model === "gpt-image-2.5-sunburst") return reply(404, { error: { message: "The model `gpt-image-2.5-sunburst` does not exist or you do not have access to it." } });
+      if (body.model === "gpt-image-2") return reply(403, { error: { message: "Your organization must be verified to use the model `gpt-image-2`." } });
+      return reply(200, { data: [{ b64_json: "AAAA" }, { b64_json: "BBBB" }] });
     }));
-    const image = await generateImage({ key: "sk-test", model: "gpt-4.1-mini" }, "gpt-image-1", "desk", "landscape");
-    expect(image).toEqual({ b64: "AAAA", type: "image/png", model: "dall-e-3", prompt: "better" });
-    expect(calls[1]).toMatchObject({ model: "dall-e-3", size: "1792x1024", response_format: "b64_json" });
-    expect(calls[0]).toMatchObject({ size: "1536x1024", quality: "medium" });
+    const image = await generateImage({ key: "sk-test", model: "gpt-4.1-mini" }, { model: "gpt-image-2.5-sunburst", prompt: "desk", aspect: "portrait", quality: "high", count: 2 });
+    expect(image.model).toBe("gpt-image-1.5");
+    expect(image.size).toBe("1024x1536");
+    expect(image.images).toEqual([{ b64: "AAAA", type: "image/webp" }, { b64: "BBBB", type: "image/webp" }]);
+    expect(calls.map((c) => c.model)).toEqual(["gpt-image-2.5-sunburst", "gpt-image-2", "gpt-image-1.5"]);
+    expect(calls[0]).toMatchObject({ size: "1024x1280", quality: "high", n: 2, output_format: "webp" });
+    expect(calls.every((c) => !("response_format" in c))).toBe(true);
+  });
+
+  it("does not retry other models on a safety rejection", async () => {
+    const fetch = vi.fn(async () => reply(400, { error: { message: "Your request was rejected by the safety system. model output" } }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(generateImage({ key: "sk-test", model: "m" }, { model: "gpt-image-2", prompt: "x", aspect: "square", quality: "low", count: 1 })).rejects.toThrow(/safety/);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

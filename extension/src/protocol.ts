@@ -55,6 +55,36 @@ export interface JobStatus {
   error: string;
 }
 
+export interface CollectedPost {
+  id: string;
+  urns: string[];
+  at: string;
+  text: string;
+  url: string;
+  media: string;
+  reactions: number;
+  comments: number;
+  reposts: number;
+  impressions: number;
+}
+
+export type PostsSource = "" | "rest" | "graphql";
+
+export interface PostsJob {
+  id: string;
+  state: JobState;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt: string;
+  since: string;
+  owner: Owner;
+  source: PostsSource;
+  counts: { posts: number; pages: number };
+  cursor: { start: number; token: string };
+  notes: string[];
+  error: string;
+}
+
 export type OutboxKind = "message" | "invite";
 
 export interface OutboxDraft {
@@ -115,13 +145,23 @@ export type Request =
   | { type: "start"; since: SyncSince; options: SyncOptions }
   | { type: "status" }
   | { type: "cancel" }
-  | { type: "fetch"; part: "connections" | "messages"; offset: number; limit: number }
+  | { type: "fetch"; part: "connections" | "messages" | "posts"; offset: number; limit: number }
+  | { type: "posts-start"; since: string }
+  | { type: "posts-status" }
+  | { type: "posts-cancel" }
   | { type: "clear" };
 
 export interface HelloResponse {
   ok: true;
   version: string;
   job: JobStatus | null;
+  features?: string[];
+  postsJob?: PostsJob | null;
+}
+
+export interface PostsJobResponse {
+  ok: true;
+  job: PostsJob | null;
 }
 
 export interface JobResponse {

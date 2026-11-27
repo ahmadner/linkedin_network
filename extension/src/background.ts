@@ -3,8 +3,9 @@ import {
   VOYAGER, type ParsedConversation, type QueryIds,
 } from "./linkedin";
 import type { CollectedConnection, CollectedMessage, ErrorResponse, JobStatus, Request, SyncOptions, SyncSince } from "./protocol";
-import { clearCollected, count, loadJob, page, putConnections, putMessages, saveJob } from "./store";
+import { clearCollected, count, loadJob, loadPostsJob, page, putConnections, putMessages, saveJob } from "./store";
 import { OUTBOX_ALARM, outboxStatus, processOutbox, readCandidates, startOutbox, stopOutbox } from "./outbox";
+import { cancelPosts, POSTS_ALARM, runPostsJob, startPosts } from "./postsSync";
 import { closeTabs, FEED_URL, isFatal, linkedinTab as sharedLinkedinTab, openTab as openSharedTab, pageRequest, resourceUrls, sleep, StopError } from "./tab";
 
 declare const __TOOL_ORIGINS__: string[];
@@ -298,7 +299,7 @@ function sanitizeSince(value: Partial<SyncSince> | undefined): SyncSince {
 async function handle(request: Request): Promise<unknown> {
   switch (request.type) {
     case "hello":
-      return { ok: true, version: chrome.runtime.getManifest().version, job: await loadJob() };
+      return { ok: true, version: chrome.runtime.getManifest().version, job: await loadJob(), features: ["posts"], postsJob: await loadPostsJob() };
     case "status":
       return { ok: true, job: await loadJob() };
     case "start":
@@ -313,11 +314,17 @@ async function handle(request: Request): Promise<unknown> {
       return { ok: true, job };
     }
     case "fetch": {
-      const part = request.part === "messages" ? "messages" : "connections";
+      const part = request.part === "messages" || request.part === "posts" ? request.part : "connections";
       const limit = Math.min(Math.max(1, Number(request.limit) || 500), 2000);
       const offset = Math.max(0, Number(request.offset) || 0);
       return { ok: true, items: await page(part, offset, limit), total: await count(part) };
     }
+    case "posts-start":
+      return { ok: true, job: await startPosts(typeof request.since === "string" ? request.since : "") };
+    case "posts-status":
+      return { ok: true, job: await loadPostsJob() };
+    case "posts-cancel":
+      return { ok: true, job: await cancelPosts() };
     case "clear":
       await clearCollected();
       return { ok: true };
@@ -352,7 +359,7 @@ chrome.runtime.onMessageExternal.addListener((request: Request, sender, sendResp
 });
 
 chrome.runtime.onMessage.addListener((request: Request, sender, sendResponse) => {
-  if (sender.id !== chrome.runtime.id || (request.type !== "status" && request.type !== "cancel")) return false;
+  if (sender.id !== chrome.runtime.id || (request.type !== "status" && request.type !== "cancel" && request.type !== "posts-status")) return false;
   return respond(request, sendResponse);
 });
 
@@ -368,9 +375,11 @@ chrome.webRequest.onBeforeRequest.addListener(
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) void runJob();
   if (alarm.name === OUTBOX_ALARM) void processOutbox();
+  if (alarm.name === POSTS_ALARM) void runPostsJob();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void runJob();
   void processOutbox();
+  void runPostsJob();
 });

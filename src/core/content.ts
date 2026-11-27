@@ -1,6 +1,6 @@
 import { asNumber, asRecord, asString, asStringList } from "./profile";
 
-export type PostOrigin = "export" | "manual";
+export type PostOrigin = "export" | "manual" | "sync";
 export type DraftStatus = "idea" | "draft" | "ready" | "scheduled" | "published";
 export type PostFormat = "text" | "image" | "carousel" | "poll" | "video" | "article";
 export type ContentLang = "ar" | "en";
@@ -60,6 +60,9 @@ export interface Draft {
   slides: Slide[];
   pollQuestion: string;
   pollOptions: string[];
+  imageText: string;
+  seriesId: string;
+  seriesIndex: number;
   versions: DraftVersion[];
   createdAt: string;
   updatedAt: string;
@@ -108,12 +111,41 @@ export interface ImageMeta {
   source: "ai" | "upload";
 }
 
+export type ImageQuality = "low" | "medium" | "high";
+export type ImageAspect = "square" | "portrait" | "landscape";
+
 export interface ContentSettings {
   postsPerWeek: number;
   defaultLang: ContentLang;
   pillars: string[];
   hashtags: string[];
   imageModel: string;
+  imageQuality: ImageQuality;
+  imageStyle: string;
+  imageAspect: ImageAspect;
+  imageCount: number;
+  brandColors: string;
+}
+
+export interface SeriesPart {
+  title: string;
+  hook: string;
+  angle: string;
+  format: PostFormat;
+  why: string;
+}
+
+export interface ContentSeries {
+  id: string;
+  name: string;
+  theme: string;
+  arc: string;
+  audience: string;
+  goal: string;
+  lang: ContentLang;
+  pillar: string;
+  parts: SeriesPart[];
+  createdAt: string;
 }
 
 export interface ContentState {
@@ -122,10 +154,28 @@ export interface ContentState {
   strategy: ContentStrategy | null;
   images: Record<string, ImageMeta>;
   settings: ContentSettings;
+  series: ContentSeries[];
+  postsSyncedAt: string;
 }
 
-export const IMAGE_MODELS = ["gpt-image-1", "gpt-image-1-mini", "dall-e-3"];
+export const DEFAULT_IMAGE_MODEL = "gpt-image-2";
+export const IMAGE_MODELS = ["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-1.5", "gpt-image-1-mini"];
+export const IMAGE_QUALITIES: ImageQuality[] = ["low", "medium", "high"];
+export const IMAGE_ASPECTS: ImageAspect[] = ["portrait", "square", "landscape"];
+export const MAX_IMAGE_COUNT = 4;
+const IMAGE_MODEL_ID = /^(gpt-image|chatgpt-image)-[\w.-]{1,40}$/;
+const RETIRED_IMAGE_MODELS = new Set(["gpt-image-1"]);
+
+export function imageModelId(value: unknown): string {
+  const id = typeof value === "string" ? value.trim() : "";
+  return IMAGE_MODEL_ID.test(id) && !RETIRED_IMAGE_MODELS.has(id) ? id : DEFAULT_IMAGE_MODEL;
+}
+
+export function defaultImageSettings(): Pick<ContentSettings, "imageModel" | "imageQuality" | "imageStyle" | "imageAspect" | "imageCount" | "brandColors"> {
+  return { imageModel: DEFAULT_IMAGE_MODEL, imageQuality: "medium", imageStyle: "editorial", imageAspect: "portrait", imageCount: 2, brandColors: "" };
+}
 export const MAX_VERSIONS = 30;
+export const MAX_SERIES_PARTS = 12;
 
 export function emptyContent(): ContentState {
   return {
@@ -133,7 +183,9 @@ export function emptyContent(): ContentState {
     drafts: [],
     strategy: null,
     images: {},
-    settings: { postsPerWeek: 2, defaultLang: "ar", pillars: [], hashtags: [], imageModel: IMAGE_MODELS[0]! },
+    series: [],
+    postsSyncedAt: "",
+    settings: { postsPerWeek: 2, defaultLang: "ar", pillars: [], hashtags: [], ...defaultImageSettings() },
   };
 }
 
@@ -160,6 +212,9 @@ export function newDraft(patch: Partial<Draft> = {}, lang: ContentLang = "ar"): 
     slides: [],
     pollQuestion: "",
     pollOptions: [],
+    imageText: "",
+    seriesId: "",
+    seriesIndex: 0,
     versions: [],
     createdAt: now,
     updatedAt: now,
@@ -368,6 +423,47 @@ export function mergeExportPosts(current: Post[], imported: Post[]): Post[] {
   return [...kept, ...imported.map((p) => ({ ...p, metrics: p.metrics ?? known(p) }))].sort((a, b) => b.at.localeCompare(a.at));
 }
 
+export interface SyncedPost {
+  post: Post;
+  keys: string[];
+}
+
+export interface SyncMerge {
+  posts: Post[];
+  added: number;
+  updated: number;
+}
+
+function sameMetrics(a: PostMetrics | null, b: PostMetrics | null): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+export function mergeSyncedPosts(current: Post[], synced: SyncedPost[]): SyncMerge {
+  const posts = [...current];
+  const byKey = new Map<string, number>();
+  const index = (p: Post, i: number): void => {
+    for (const key of [p.id, postKey(p.url), textKey(p.text)]) if (key && !byKey.has(key)) byKey.set(key, i);
+  };
+  posts.forEach(index);
+  let added = 0;
+  let updated = 0;
+  for (const { post, keys } of synced) {
+    const match = [post.id, ...keys, postKey(post.url), textKey(post.text)].map((k) => (k ? byKey.get(k) : undefined)).find((i) => i !== undefined);
+    if (match === undefined) {
+      posts.push(post);
+      index(post, posts.length - 1);
+      added += 1;
+      continue;
+    }
+    const old = posts[match]!;
+    const metrics = post.metrics ? { ...post.metrics, impressions: Math.max(post.metrics.impressions, old.metrics?.impressions ?? 0) } : old.metrics;
+    const next: Post = { ...old, text: old.text || post.text, url: old.url || post.url, at: old.at || post.at, media: old.media || post.media, metrics };
+    if (!sameMetrics(old.metrics, next.metrics) || next.text !== old.text || next.url !== old.url) updated += 1;
+    posts[match] = next;
+  }
+  return { posts: posts.sort((a, b) => b.at.localeCompare(a.at)), added, updated };
+}
+
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const oneOf = <T extends string>(value: unknown, options: readonly T[], fallback: T): T => (options.includes(value as T) ? (value as T) : fallback);
 const LANGS: ContentLang[] = ["ar", "en"];
@@ -391,7 +487,7 @@ export function sanitizePost(v: unknown): Post | null {
     url: safeUrl(asString(r.url, 500)),
     sharedUrl: safeUrl(asString(r.sharedUrl, 1000)),
     media: asString(r.media, 1000),
-    origin: r.origin === "manual" ? "manual" : "export",
+    origin: r.origin === "manual" || r.origin === "sync" ? r.origin : "export",
     metrics: metrics(r.metrics),
   };
 }
@@ -419,6 +515,9 @@ function sanitizeDraft(v: unknown): Draft | null {
     }),
     pollQuestion: asString(r.pollQuestion, 140),
     pollOptions: asStringList(r.pollOptions, 4).map((o) => o.slice(0, 30)),
+    imageText: asString(r.imageText, 120),
+    seriesId: asString(r.seriesId, 60),
+    seriesIndex: Math.min(30, Math.max(0, Math.round(asNumber(r.seriesIndex, 0)))),
     versions: list(r.versions).slice(-MAX_VERSIONS).map((x) => {
       const ver = asRecord(x);
       return { at: asString(ver.at, 40), text: asString(ver.text, 6000), source: asString(ver.source, 80) };
@@ -441,6 +540,32 @@ export function sanitizeIdea(v: unknown): ContentIdea | null {
     format: oneOf(r.format, POST_FORMATS, "text"),
     lang: oneOf(r.lang, LANGS, "ar"),
     why: asString(r.why, 400).trim(),
+  };
+}
+
+export function sanitizeSeriesPart(v: unknown): SeriesPart | null {
+  const r = asRecord(v);
+  const title = asString(r.title, 200).trim();
+  if (!title) return null;
+  return { title, hook: asString(r.hook, 400).trim(), angle: asString(r.angle, 600).trim(), format: oneOf(r.format, POST_FORMATS, "text"), why: asString(r.why, 400).trim() };
+}
+
+export function sanitizeSeries(v: unknown): ContentSeries | null {
+  const r = asRecord(v);
+  const id = asString(r.id, 60);
+  const name = asString(r.name, 200).trim();
+  if (!id || !name) return null;
+  return {
+    id,
+    name,
+    theme: asString(r.theme, 800).trim(),
+    arc: asString(r.arc, 1200).trim(),
+    audience: asString(r.audience, 400).trim(),
+    goal: asString(r.goal, 400).trim(),
+    lang: oneOf(r.lang, LANGS, "ar"),
+    pillar: asString(r.pillar, 120).trim(),
+    parts: list(r.parts).slice(0, MAX_SERIES_PARTS).map(sanitizeSeriesPart).filter((p): p is SeriesPart => p !== null),
+    createdAt: asString(r.createdAt, 40),
   };
 }
 
@@ -496,12 +621,19 @@ export function sanitizeContent(v: unknown): ContentState {
     drafts: list(r.drafts).map(sanitizeDraft).filter((d): d is Draft => d !== null),
     strategy: sanitizeStrategy(r.strategy),
     images,
+    series: list(r.series).slice(0, 100).map(sanitizeSeries).filter((x): x is ContentSeries => x !== null),
+    postsSyncedAt: asString(r.postsSyncedAt, 40),
     settings: {
       postsPerWeek: Math.min(14, Math.max(1, Math.round(asNumber(s.postsPerWeek, base.settings.postsPerWeek)))),
       defaultLang: oneOf(s.defaultLang, LANGS, "ar"),
       pillars: asStringList(s.pillars, 12),
       hashtags: asStringList(s.hashtags, 20).map(normalizeHashtag).filter(Boolean),
-      imageModel: oneOf(s.imageModel, IMAGE_MODELS, IMAGE_MODELS[0]!),
+      imageModel: imageModelId(s.imageModel),
+      imageQuality: oneOf(s.imageQuality, IMAGE_QUALITIES, base.settings.imageQuality),
+      imageStyle: asString(s.imageStyle, 40) || base.settings.imageStyle,
+      imageAspect: oneOf(s.imageAspect, IMAGE_ASPECTS, base.settings.imageAspect),
+      imageCount: Math.min(MAX_IMAGE_COUNT, Math.max(1, Math.round(asNumber(s.imageCount, base.settings.imageCount)))),
+      brandColors: asString(s.brandColors, 200).trim(),
     },
   };
 }

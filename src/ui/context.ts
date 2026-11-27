@@ -123,6 +123,7 @@ export function noData(ctx: Ctx): HTMLElement {
 }
 
 export function aiErrorText(error: unknown, model: string): string {
+  if (error instanceof DOMException && error.name === "AbortError") return "وقّفت الشغل. اللي خلص قبل الإيقاف انحفظ.";
   if (isModelAccessError(error)) return `حسابك ما بيقدر يستخدم الموديل ${model}. بعض الموديلات بدها توثيق للمنظمة على OpenAI، فاختار موديل ثاني من صفحة الذكاء الاصطناعي.`;
   if (error instanceof OpenAiError && error.status === 401) return "مفتاح OpenAI غلط أو انلغى. حط مفتاح جديد من صفحة الذكاء الاصطناعي.";
   if (error instanceof OpenAiError && error.code === "insufficient_quota") return "رصيد OpenAI خلص. اشحن الحساب من platform.openai.com وجرّب مرة ثانية.";
@@ -158,13 +159,15 @@ function aiConfigOrRedirect(ctx: Ctx): AiConfig | null {
   return null;
 }
 
-export async function runAi<T>(ctx: Ctx, label: string, task: (cfg: AiConfig) => Promise<T>): Promise<T | undefined> {
+export async function runAi<T>(ctx: Ctx, label: string, task: (cfg: AiConfig, progress: (text: string) => void) => Promise<T>): Promise<T | undefined> {
   const cfg = aiConfigOrRedirect(ctx);
   if (!cfg) return undefined;
+  const controller = new AbortController();
+  cfg.signal = controller.signal;
   const from = cfg.model;
-  const result = await ctx.busy(label, () => task(cfg).catch((error: unknown) => {
+  const result = await ctx.busy(label, (progress) => task(cfg, progress).catch((error: unknown) => {
     throw new Error(aiErrorText(error, cfg.model));
-  }));
+  }), () => controller.abort());
   keepFallbackModel(ctx, from, cfg);
   return result;
 }

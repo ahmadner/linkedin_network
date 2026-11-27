@@ -1,4 +1,4 @@
-export type TabOwner = "sync" | "outbox";
+export type TabOwner = "sync" | "outbox" | "posts";
 
 export class StopError extends Error {}
 export class AuthError extends Error {}
