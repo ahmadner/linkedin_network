@@ -47,7 +47,7 @@ async function runBatch<T>(ctx: Ctx, label: string, items: T[], work: (item: T, 
   else if (done > 0) ctx.toast(`تم: ${done}`);
 }
 
-export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
+export function renderAi(ctx: Ctx): HTMLElement {
   const state = ctx.store.state;
   const keyInput = h("input", { type: "password", autocomplete: "off", spellcheck: "false", placeholder: "sk-...", value: getApiKey() });
   const remember = h("input", { type: "checkbox", checked: isKeyRemembered() });
@@ -108,7 +108,6 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
       ctx.store.update((s) => Object.assign(s.ai.classifications, result), { emit: false });
     }, 2, key);
     ctx.store.update(() => undefined);
-    rerender();
   };
 
   const writeAll = async (): Promise<void> => {
@@ -120,7 +119,6 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
       ctx.store.update((s) => (s.ai.messages[c.id] = result), { emit: false });
     }, 3, key);
     ctx.store.update(() => undefined);
-    rerender();
   };
 
   const analyzeAll = async (list: Contact[]): Promise<void> => {
@@ -133,7 +131,6 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
       ctx.store.update((s) => (s.ai.analyses[c.id] = result), { recompute: false, emit: false });
     }, 3, key);
     ctx.store.update(() => undefined, { recompute: false });
-    rerender();
   };
 
   const clearAi = (): void => {

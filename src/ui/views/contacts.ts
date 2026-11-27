@@ -57,34 +57,27 @@ function patchTracking(ctx: Ctx, c: Contact, patch: Partial<Tracking>, recompute
   }, { recompute });
 }
 
-function tagEditor(ctx: Ctx, c: Contact, onChange: () => void): HTMLElement {
-  const host = h("div", { class: "tag-editor" });
-  const draw = (): void => {
-    const input = h("input", { type: "text", list: "known-tags", placeholder: "وسم جديد ثم Enter", "aria-label": "وسم جديد" });
-    const save = (tags: string[]): void => {
-      patchTracking(ctx, c, { tags: normalizeTags(tags) }, false);
-      draw();
-      onChange();
-      requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".tag-editor input")?.focus());
-    };
-    const add = (): void => {
-      const values = input.value.split(",").map((v) => v.trim()).filter(Boolean);
-      if (values.length > 0) save([...c.tracking.tags, ...values]);
-    };
-    input.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter" && e.key !== ",") return;
-      e.preventDefault();
-      add();
-    });
-    replace(host,
-      c.tracking.tags.map((t) => h("span", { class: "chip" }, t,
-        h("button", { type: "button", class: "link", "aria-label": `شيل الوسم ${t}`, onclick: () => save(c.tracking.tags.filter((x) => x !== t)) }, "✕"))),
-      input,
-      h("button", { type: "button", class: "link", onclick: add }, "إضافة"),
-    );
+function tagEditor(ctx: Ctx, c: Contact): HTMLElement {
+  const input = h("input", { type: "text", list: "known-tags", placeholder: "وسم جديد ثم Enter", "aria-label": "وسم جديد" });
+  const save = (tags: string[]): void => {
+    patchTracking(ctx, c, { tags: normalizeTags(tags) }, false);
+    requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".tag-editor input")?.focus());
   };
-  draw();
-  return host;
+  const add = (): void => {
+    const values = input.value.split(",").map((v) => v.trim()).filter(Boolean);
+    if (values.length > 0) save([...c.tracking.tags, ...values]);
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== ",") return;
+    e.preventDefault();
+    add();
+  });
+  return h("div", { class: "tag-editor" },
+    c.tracking.tags.map((t) => h("span", { class: "chip" }, t,
+      h("button", { type: "button", class: "link", "aria-label": `شيل الوسم ${t}`, onclick: () => save(c.tracking.tags.filter((x) => x !== t)) }, "✕"))),
+    input,
+    h("button", { type: "button", class: "link", onclick: add }, "إضافة"),
+  );
 }
 
 function sorted(list: Contact[]): Contact[] {
@@ -126,7 +119,6 @@ function templateCard(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
     if (!result) return;
     view.templateRules = false;
     ctx.store.update((s) => (s.ai.templates[templateKey(c.id, id)] = result), { recompute: false });
-    rerender();
   };
   const job = TEMPLATES_WITH_JOB.has(id)
     ? h("div", { class: "form-grid" },
@@ -149,13 +141,12 @@ function templateCard(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
 
 const STAGE_TONE: Record<string, string> = { opportunity: "good", waiting_me: "bad", gone_cold: "warn", closed: "" };
 
-function analysisCard(ctx: Ctx, c: Contact, history: StoredMessage[], rerender: () => void): HTMLElement {
+function analysisCard(ctx: Ctx, c: Contact, history: StoredMessage[]): HTMLElement {
   const result = ctx.store.state.ai.analyses[c.id];
   const run = async (): Promise<void> => {
     const out = await runAi(ctx, "تحليل المحادثة…", (cfg) => analyzeConversation(c, ctx.store.state.profile, history, cfg, todayIso()));
     if (!out) return;
     ctx.store.update((s) => (s.ai.analyses[c.id] = out), { recompute: false });
-    rerender();
   };
   const limit = ctx.store.state.profile.messaging.message_char_limit;
   return card("تحليل المحادثة",
@@ -177,7 +168,7 @@ function analysisCard(ctx: Ctx, c: Contact, history: StoredMessage[], rerender: 
   );
 }
 
-function trackingForm(ctx: Ctx, c: Contact, onChange: () => void): HTMLElement {
+function trackingForm(ctx: Ctx, c: Contact): HTMLElement {
   const set = (patch: Partial<Tracking>): void => patchTracking(ctx, c, patch);
   const date = h("input", { type: "date", value: c.tracking.dateSent });
   date.addEventListener("change", () => set({ dateSent: date.value }));
@@ -187,15 +178,12 @@ function trackingForm(ctx: Ctx, c: Contact, onChange: () => void): HTMLElement {
     field("تاريخ الإرسال", h("div", { class: "row tight" }, date, h("button", { type: "button", class: "link", onclick: today }, "اليوم"))),
     field("رد؟", select([["", "—"], ["Yes", "Yes"], ["No", "No"], ["Pending", "Pending"]], c.tracking.replied, (v) => set({ replied: v }))),
     field("الخطوة الجاية", textInput(c.tracking.nextStep, (v) => set({ nextStep: v }))),
-    field("الوسوم", tagEditor(ctx, c, onChange)),
-    field("ملاحظات", textArea(c.tracking.notes, (v) => {
-      patchTracking(ctx, c, { notes: v }, false);
-      onChange();
-    }, { rows: 3 })),
+    field("الوسوم", tagEditor(ctx, c)),
+    field("ملاحظات", textArea(c.tracking.notes, (v) => patchTracking(ctx, c, { notes: v }, false), { rows: 3 })),
   );
 }
 
-function drawer(ctx: Ctx, c: Contact, rerender: () => void, onChange: () => void): HTMLElement {
+function drawer(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
   const limits = ctx.store.state.profile.messaging;
   const variant = view.variant === "ai" && c.ai ? "ai" : "rules";
   const set: MessageSet = variant === "ai" && c.ai ? c.ai : c;
@@ -240,7 +228,7 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void, onChange: () => void
       h("summary", {}, `آخر الرسائل (${conversation.length})`),
       h("ul", { class: "thread" }, conversation.map((m) => h("li", { class: m.outgoing ? "out" : "in" }, h("small", {}, m.at.slice(0, 10)), " ", m.content || "—"))),
     ) : null,
-    history.length > 0 ? analysisCard(ctx, c, history, rerender) : null,
+    history.length > 0 ? analysisCard(ctx, c, history) : null,
     h("div", { class: "tabs small" },
       h("button", { type: "button", class: variant === "rules" ? "active" : "", onclick: () => { view.variant = "rules"; rerender(); } }, "رسائل القواعد"),
       h("button", { type: "button", class: variant === "ai" ? "active" : "", disabled: !c.ai, onclick: () => { view.variant = "ai"; rerender(); } }, "رسائل AI"),
@@ -253,7 +241,7 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void, onChange: () => void
     messageBlock("متابعة - عربي", set.followup_ar),
     messageBlock("Follow-up - English", set.followup_en),
     templateCard(ctx, c, rerender),
-    card("المتابعة", trackingForm(ctx, c, onChange)),
+    card("المتابعة", trackingForm(ctx, c)),
   );
 }
 
@@ -350,7 +338,6 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
         }
       }, { recompute: false });
       ctx.toast(`انضاف الوسم لـ ${fmtNumber(list.length)} شخص`);
-      rerender();
     };
     return h("span", { class: "row tight" }, input, h("button", { type: "button", class: "link", onclick: apply }, "وسم النتيجة"));
   };
@@ -384,7 +371,7 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
       ),
       tableHost,
     ),
-    selected ? drawer(ctx, selected, rerender, drawTable) : null,
+    selected ? drawer(ctx, selected, rerender) : null,
     h("datalist", { id: "known-tags" }, tags.map(([t]) => h("option", { value: t }))),
   );
 }

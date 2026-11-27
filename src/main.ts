@@ -67,7 +67,7 @@ async function boot(): Promise<void> {
         case "dashboard": return renderDashboard(ctx);
         case "opportunities": return renderOpportunities(ctx, render);
         case "profile": return renderProfile(ctx);
-        case "ai": return renderAi(ctx, render);
+        case "ai": return renderAi(ctx);
         case "quality": return renderQuality(ctx);
       }
     })();
