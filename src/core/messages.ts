@@ -76,7 +76,7 @@ export function clip(text: string, limit: number): string {
   return cut.replace(/[ ,.،؛-]+$/, "") + "…";
 }
 
-function tidy(text: string): string {
+export function tidy(text: string): string {
   return text
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
@@ -88,7 +88,7 @@ function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function sentence(text: string, lang: Lang): string {
+export function sentence(text: string, lang: Lang): string {
   const ends = lang === "ar" ? [".", "!", "؟"] : [".", "!", "?"];
   return ends.some((e) => text.endsWith(e)) ? text : text + ".";
 }
@@ -149,15 +149,91 @@ const JOB_ASK: Record<Archetype, Pair> = {
 
 const GENERAL_ASK: Pair = ["بحب نبقى على تواصل ونشوف إذا في مجال نتعاون فيه.", "I would like to stay connected and explore whether there is room to collaborate."];
 
-export class MessageBuilder {
-  private readonly noteLimit: number;
-  private readonly messageLimit: number;
+export class ProfileVoice {
+  protected readonly noteLimit: number;
+  protected readonly messageLimit: number;
 
-  constructor(private readonly profile: Profile) {
+  constructor(protected readonly profile: Profile) {
     this.noteLimit = profile.messaging.note_char_limit || 200;
     this.messageLimit = profile.messaging.message_char_limit || 1600;
   }
 
+  protected pick(pair: Pair, lang: Lang): string {
+    return lang === "ar" ? pair[0] : pair[1];
+  }
+
+  protected myRole(lang: Lang): string {
+    const me = this.profile.me;
+    const role = me.current_role.trim() || (me.target_roles[0] ?? "").trim();
+    return role || (lang === "ar" ? "مهتم بمجالك" : "working in a related field");
+  }
+
+  protected roleWithArticle(): string {
+    const me = this.profile.me;
+    const role = this.myRole("en");
+    if (!me.current_role.trim() && !(me.target_roles[0] ?? "").trim()) return role;
+    return `${/^[aeiou]/i.test(role) ? "an" : "a"} ${role}`;
+  }
+
+  protected yearsPhrase(lang: Lang): string {
+    const y = Math.floor(Number(this.profile.me.years_experience) || 0);
+    if (y <= 0) return "";
+    if (lang === "en") return ` with ${y}+ years of experience`;
+    if (y === 1) return " وعندي خبرة سنة";
+    if (y === 2) return " وعندي خبرة سنتين";
+    return y <= 10 ? ` وعندي خبرة ${y} سنوات` : ` وعندي خبرة ${y} سنة`;
+  }
+
+  protected skills(lang: Lang): string {
+    const list = this.profile.me.top_skills.map((s) => s.trim()).filter(Boolean).slice(0, 3);
+    if (list.length === 0) return "";
+    if (lang === "ar") return list.join("، ");
+    return list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}` : list[0] ?? "";
+  }
+
+  protected highlight(lang: Lang): string {
+    return (lang === "ar" ? this.profile.me.highlight_ar : this.profile.me.highlight_en).trim();
+  }
+
+  protected cvLine(lang: Lang): string {
+    const { cv_link: cv, portfolio_link: pf } = this.profile.me;
+    const bits: string[] = [];
+    if (cv.trim()) bits.push(lang === "ar" ? `سيرتي الذاتية: ${cv.trim()}` : `CV: ${cv.trim()}`);
+    if (pf.trim()) bits.push(lang === "ar" ? `أعمالي: ${pf.trim()}` : `Portfolio: ${pf.trim()}`);
+    return bits.join("\n");
+  }
+
+  protected signature(lang: Lang): string {
+    const m = this.profile.messaging;
+    const sig = (lang === "ar" ? m.signature_ar : m.signature_en).trim();
+    return sig || this.profile.me.first_name.trim() || this.profile.me.full_name.trim();
+  }
+
+  protected greeting(name: string, lang: Lang): string {
+    if (lang === "ar") return name ? `مرحبًا ${name}،` : "مرحبًا،";
+    return name ? `Hi ${name},` : "Hello,";
+  }
+
+  protected atCompany(company: string, lang: Lang): string {
+    if (!company) return "";
+    return lang === "ar" ? ` في ${company}` : ` at ${company}`;
+  }
+
+  protected theirRolePhrase(role: string, company: string, lang: Lang): string {
+    const ar = lang === "ar";
+    if (role && company) return ar ? `دورك كـ ${role} في ${company}` : `your work as ${role} at ${company}`;
+    if (role) return ar ? `دورك كـ ${role}` : `your work as ${role}`;
+    if (company) return ar ? `شغلك في ${company}` : `your work at ${company}`;
+    return ar ? "شغلك" : "your work";
+  }
+
+
+  protected finish(lines: string[]): string {
+    return clip(tidy(lines.join("\n")), this.messageLimit);
+  }
+}
+
+export class MessageBuilder extends ProfileVoice {
   build(ctx: MessageContext): MessageSet {
     const out = {} as MessageSet;
     for (const lang of ["ar", "en"] as const) {
@@ -174,68 +250,6 @@ export class MessageBuilder {
       out[`followup_${lang}`] = this.followup(lang, ctx);
     }
     return out;
-  }
-
-  private pick(pair: Pair, lang: Lang): string {
-    return lang === "ar" ? pair[0] : pair[1];
-  }
-
-  private myRole(lang: Lang): string {
-    const me = this.profile.me;
-    const role = me.current_role.trim() || (me.target_roles[0] ?? "").trim();
-    return role || (lang === "ar" ? "مهتم بمجالك" : "working in a related field");
-  }
-
-  private yearsPhrase(lang: Lang): string {
-    const y = Math.floor(Number(this.profile.me.years_experience) || 0);
-    if (y <= 0) return "";
-    if (lang === "en") return ` with ${y}+ years of experience`;
-    if (y === 1) return " وعندي خبرة سنة";
-    if (y === 2) return " وعندي خبرة سنتين";
-    return y <= 10 ? ` وعندي خبرة ${y} سنوات` : ` وعندي خبرة ${y} سنة`;
-  }
-
-  private skills(lang: Lang): string {
-    const list = this.profile.me.top_skills.map((s) => s.trim()).filter(Boolean).slice(0, 3);
-    if (list.length === 0) return "";
-    if (lang === "ar") return list.join("، ");
-    return list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}` : list[0] ?? "";
-  }
-
-  private highlight(lang: Lang): string {
-    return (lang === "ar" ? this.profile.me.highlight_ar : this.profile.me.highlight_en).trim();
-  }
-
-  private cvLine(lang: Lang): string {
-    const { cv_link: cv, portfolio_link: pf } = this.profile.me;
-    const bits: string[] = [];
-    if (cv.trim()) bits.push(lang === "ar" ? `سيرتي الذاتية: ${cv.trim()}` : `CV: ${cv.trim()}`);
-    if (pf.trim()) bits.push(lang === "ar" ? `أعمالي: ${pf.trim()}` : `Portfolio: ${pf.trim()}`);
-    return bits.join("\n");
-  }
-
-  private signature(lang: Lang): string {
-    const m = this.profile.messaging;
-    const sig = (lang === "ar" ? m.signature_ar : m.signature_en).trim();
-    return sig || this.profile.me.first_name.trim() || this.profile.me.full_name.trim();
-  }
-
-  private greeting(name: string, lang: Lang): string {
-    if (lang === "ar") return name ? `مرحبًا ${name}،` : "مرحبًا،";
-    return name ? `Hi ${name},` : "Hello,";
-  }
-
-  private atCompany(company: string, lang: Lang): string {
-    if (!company) return "";
-    return lang === "ar" ? ` في ${company}` : ` at ${company}`;
-  }
-
-  private theirRolePhrase(role: string, company: string, lang: Lang): string {
-    const ar = lang === "ar";
-    if (role && company) return ar ? `دورك كـ ${role} في ${company}` : `your work as ${role} at ${company}`;
-    if (role) return ar ? `دورك كـ ${role}` : `your work as ${role}`;
-    if (company) return ar ? `شغلك في ${company}` : `your work at ${company}`;
-    return ar ? "شغلك" : "your work";
   }
 
   private ask(archetype: Archetype, lang: Lang): string {
@@ -257,9 +271,6 @@ export class MessageBuilder {
     return lines;
   }
 
-  private finish(lines: string[]): string {
-    return clip(tidy(lines.join("\n")), this.messageLimit);
-  }
 
   private reconnect(lang: Lang, ctx: MessageContext): string {
     const since = sincePhrase(ctx.daysSince, lang);
@@ -278,7 +289,7 @@ export class MessageBuilder {
       this.greeting(ctx.greetingName, lang), "",
       `We last spoke ${since}, so I wanted to reconnect.`, "",
       `I saw ${role} and I follow your work with real interest.`, "",
-      ...this.aboutMeBlock(lang, `On my side, I am now ${this.myRole(lang)}${this.yearsPhrase(lang)}.`),
+      ...this.aboutMeBlock(lang, `On my side, I am now ${this.roleWithArticle()}${this.yearsPhrase(lang)}.`),
       ...this.closing(lang, ask, "Thanks for your time,"),
     ]);
   }
@@ -298,7 +309,7 @@ export class MessageBuilder {
     if (lang === "ar") {
       return this.finish([
         g, "", `كنت بعتتلك رسالة ${since} وما بعرف إذا وصلتك وسط الزحمة.`, "",
-        "إذا الوقت مش مناسب بتفهم تمامًا وما بدي أثقل عليك. وإذا في مجال، رد بسطر واحد بكفي.", "",
+        "إذا الوقت مش مناسب بفهم تمامًا وما بدي أثقل عليك. وإذا في مجال، رد بسطر واحد بكفي.", "",
         "شكرًا على أي حال،", this.signature(lang),
       ]);
     }
@@ -312,7 +323,7 @@ export class MessageBuilder {
   private nudgeShort(lang: Lang, ctx: MessageContext): string {
     const since = sincePhrase(ctx.daysSince, lang);
     const core = lang === "ar"
-      ? `بس برجع أذكّرك برسالتي ${since} - إذا الوقت مش مناسب بتفهم تمامًا.`
+      ? `بس برجع أذكّرك برسالتي ${since} - إذا الوقت مش مناسب بفهم تمامًا.`
       : `Just following up on my message from ${since} - if the timing is off, no problem at all.`;
     return clip(`${this.greeting(ctx.greetingName, lang)} ${core}`, this.noteLimit);
   }
@@ -329,14 +340,15 @@ export class MessageBuilder {
       academic: `أنا ${role} ومهتم بالمجال الي بتشتغل فيه. حبيت نبقى على تواصل.`,
       generic: `أنا ${role} وحبيت أضيفك لشبكتي المهنية${at}.`,
     };
+    const article = this.roleWithArticle();
     const en: Record<Archetype, string> = {
-      recruiter: `I am ${role}, currently exploring openings${at} - would like to connect and be on your radar.`,
-      hiring_manager: `I am ${role} and I follow the work your team does${at}. Would be glad to connect.`,
-      senior_leader: `I am ${role} and have been following your work${at}. It would be a pleasure to connect.`,
-      founder: `I am ${role} and I like what you are building${at}. Would love to connect.`,
-      peer: `I am ${role} - your work is close to my field, so I would like to stay connected.`,
-      academic: `I am ${role} and interested in the field you work in. Would like to stay connected.`,
-      generic: `I am ${role} and would like to add you to my professional network${at}.`,
+      recruiter: `I am ${article}, currently exploring openings${at} - would like to connect and be on your radar.`,
+      hiring_manager: `I am ${article} and I follow the work your team does${at}. Would be glad to connect.`,
+      senior_leader: `I am ${article} and have been following your work${at}. It would be a pleasure to connect.`,
+      founder: `I am ${article} and I like what you are building${at}. Would love to connect.`,
+      peer: `I am ${article} - your work is close to my field, so I would like to stay connected.`,
+      academic: `I am ${article} and interested in the field you work in. Would like to stay connected.`,
+      generic: `I am ${article} and would like to add you to my professional network${at}.`,
     };
     const core = (lang === "ar" ? ar : en)[ctx.archetype];
     return clip(`${this.greeting(ctx.greetingName, lang)} ${core}`, this.noteLimit);
@@ -372,14 +384,14 @@ export class MessageBuilder {
       academic: `I saw ${role} and we share the same field of interest.`,
       generic: `I saw ${role} - ${angle}.`,
     };
-    const about = `I am ${this.myRole(lang)}${this.yearsPhrase(lang)}${skills ? `, and my strongest skills are ${skills}` : ""}.`;
+    const about = `I am ${this.roleWithArticle()}${this.yearsPhrase(lang)}${skills ? `, and my strongest skills are ${skills}` : ""}.`;
     return this.finish([g, "", opener[ctx.archetype], "", ...this.aboutMeBlock(lang, about), ...this.closing(lang, ask, "Thanks for your time,")]);
   }
 
   private followup(lang: Lang, ctx: MessageContext): string {
     const g = this.greeting(ctx.greetingName, lang);
     const body = lang === "ar"
-      ? "بس بذكرك برسالتي السابقة - بتفهم إذا الوقت مش مناسب. إذا في أي شي أقدر أساعد فيه من طرفي، أنا جاهز. شكرًا!"
+      ? "بس بذكرك برسالتي السابقة - بفهم إذا الوقت مش مناسب. إذا في أي شي أقدر أساعد فيه من طرفي، أنا جاهز. شكرًا!"
       : "Just a gentle nudge on my earlier message - I completely understand if the timing is off. If there is anything I can help with on my side, happy to. Thank you!";
     return tidy(`${g}\n\n${body}`);
   }

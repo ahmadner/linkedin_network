@@ -3,9 +3,10 @@ import { parse, stringify } from "yaml";
 import { DEFAULT_MODEL } from "../ai/openai";
 import { emptyDataset } from "../core/dataset";
 import { normalizeTags } from "../core/tags";
+import { TEMPLATE_IDS, type TemplateId } from "../core/templates";
 import { asNumber, asRecord, asString, asStringList, defaultProfile, DEFAULT_COMPANY_OVERRIDES, sanitizeOverrides, sanitizeProfile } from "../core/profile";
 import type {
-  AiClassification, AiMessage, Dataset, LogEntry, OutreachMode, Party, Profile, RawConnection, SourceOrigin,
+  AiClassification, AiMessage, AiTemplate, Dataset, LogEntry, OutreachMode, Party, Profile, RawConnection, SourceOrigin,
   StoredInvitation, StoredMessage, Tracking,
 } from "../core/types";
 
@@ -16,6 +17,7 @@ export interface AiState {
   model: string;
   messages: Record<string, AiMessage>;
   classifications: Record<string, AiClassification>;
+  templates: Record<string, AiTemplate>;
 }
 
 export interface AppState {
@@ -34,7 +36,7 @@ export function emptyState(): AppState {
     dataset: emptyDataset(),
     tracking: {},
     log: [],
-    ai: { model: DEFAULT_MODEL, messages: {}, classifications: {} },
+    ai: { model: DEFAULT_MODEL, messages: {}, classifications: {}, templates: {} },
   };
 }
 
@@ -172,6 +174,13 @@ function aiMessage(v: unknown): AiMessage | null {
   };
 }
 
+function aiTemplate(v: unknown): AiTemplate | null {
+  const r = asRecord(v);
+  const template = asString(r.template, 40);
+  if (!TEMPLATE_IDS.includes(template as TemplateId)) return null;
+  return { template, ar: asString(r.ar, 6000), en: asString(r.en, 6000), model: asString(r.model, 100), generatedAt: asString(r.generatedAt, 40) };
+}
+
 function aiClassification(v: unknown): AiClassification {
   const r = asRecord(v);
   const out: AiClassification = { model: asString(r.model, 100) };
@@ -281,6 +290,7 @@ function sanitizeState(sections: Sections): AppState {
     model: asString(ai.model, 100) || DEFAULT_MODEL,
     messages: recordOf(ai.messages, aiMessage),
     classifications: recordOf(ai.classifications, aiClassification),
+    templates: recordOf(ai.templates, aiTemplate),
   };
   return state;
 }

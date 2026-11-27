@@ -118,6 +118,7 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
     ctx.store.update((s) => {
       s.ai.messages = {};
       s.ai.classifications = {};
+      s.ai.templates = {};
     });
   };
 

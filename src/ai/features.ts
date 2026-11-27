@@ -1,7 +1,8 @@
 import { FUNCTION_LABELS, INDUSTRY_LABELS, SENIORITY_LABELS } from "../core/classify";
 import { clip } from "../core/messages";
 import { asRecord, asString } from "../core/profile";
-import type { AiClassification, AiMessage, Contact, MessageSet, Profile, StoredMessage } from "../core/types";
+import { TEMPLATE_PURPOSE, type TemplateExtra, type TemplateId } from "../core/templates";
+import type { AiClassification, AiMessage, AiTemplate, Contact, MessageSet, Profile, StoredMessage } from "../core/types";
 import { chatJson, type AiConfig } from "./openai";
 
 const MESSAGE_SYSTEM = [
@@ -81,6 +82,49 @@ export async function generateMessages(contact: Contact, profile: Profile, histo
   };
   if (!result.message_ar && !result.message_en) throw new Error("The model returned empty messages");
   return result;
+}
+
+const TEMPLATE_SYSTEM = [
+  "You write one LinkedIn direct message for the user described in the input, for the purpose given in the input.",
+  "Make it specific to the recipient's role, company and industry, warm, confident and short enough to read on a phone.",
+  "Arabic text must be natural Levantine (Jordanian) Arabic as people write on LinkedIn, not formal MSA, and not a literal translation of the English.",
+  "Use only facts given in the input. Never invent achievements, mutual friends, past conversations, numbers or job openings. Mention the job title or link only if given.",
+  "If the conversation history shows they spoke before, continue naturally from it instead of introducing the user from scratch.",
+  "Include the CV link only if it is given and the purpose is a referral or a job question.",
+  "Return a JSON object with exactly these string keys: ar, en.",
+].join(" ");
+
+export function templateKey(contactId: string, id: TemplateId): string {
+  return `${contactId}|${id}`;
+}
+
+export async function generateTemplate(contact: Contact, profile: Profile, history: StoredMessage[], id: TemplateId, extra: TemplateExtra, cfg: AiConfig): Promise<AiTemplate> {
+  const limit = profile.messaging.message_char_limit;
+  const input = {
+    purpose: TEMPLATE_PURPOSE[id],
+    me: myFacts(profile),
+    job: { title: extra.jobTitle.trim(), link: extra.jobLink.trim() },
+    recipient: {
+      first_name: contact.greetingName,
+      role: contact.positionPrimary || contact.positionClean,
+      company: contact.companyClean,
+      industry: contact.industry,
+      function: contact.function,
+      seniority: contact.seniority,
+    },
+    history: {
+      spoke_before: contact.contactedBefore,
+      days_since_last_contact: contact.daysSinceContact,
+      recent_conversation: conversationExcerpt(history),
+    },
+    limits: { message_chars: limit },
+  };
+  const { data, model } = await chatJson(cfg, TEMPLATE_SYSTEM, JSON.stringify(input));
+  const raw = asRecord(data);
+  const ar = clip(asString(raw.ar, 8000).trim(), limit);
+  const en = clip(asString(raw.en, 8000).trim(), limit);
+  if (!ar && !en) throw new Error("The model returned an empty message");
+  return { template: id, ar, en, model, generatedAt: new Date().toISOString() };
 }
 
 const CLASSIFY_SYSTEM = [

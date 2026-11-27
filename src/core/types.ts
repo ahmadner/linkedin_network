@@ -168,6 +168,14 @@ export interface AiMessage extends MessageSet {
   generatedAt: string;
 }
 
+export interface AiTemplate {
+  template: string;
+  ar: string;
+  en: string;
+  model: string;
+  generatedAt: string;
+}
+
 export interface AiClassification {
   seniority?: string;
   function?: string;

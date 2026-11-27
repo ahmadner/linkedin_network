@@ -1,10 +1,11 @@
-import { generateMessages } from "../../ai/features";
+import { generateMessages, generateTemplate, templateKey } from "../../ai/features";
 import { getApiKey } from "../../ai/key";
 import type { AiConfig } from "../../ai/openai";
 import { FUNCTION_LABELS, INDUSTRY_LABELS } from "../../core/classify";
 import { nameKey } from "../../core/text";
 import { newTracking } from "../../core/pipeline";
 import { hasTag, normalizeTags, tagCounts } from "../../core/tags";
+import { TEMPLATE_IDS, TEMPLATE_LABEL, TEMPLATES_WITH_JOB, TemplateBuilder, type TemplateId } from "../../core/templates";
 import type { Contact, MessageSet, StoredMessage, Tracking } from "../../core/types";
 import { CONTACT_EXPORT_COLUMNS } from "../../io/excel";
 import { aiErrorText, badge, card, exportLinks, keepFallbackModel, MODE_AR, type Ctx } from "../context";
@@ -28,6 +29,10 @@ const view = {
   page: 0,
   selected: "",
   variant: "rules" as "rules" | "ai",
+  template: "referral" as TemplateId,
+  templateRules: false,
+  jobTitle: "",
+  jobLink: "",
 };
 
 function matches(c: Contact): boolean {
@@ -111,6 +116,58 @@ function messageBlock(title: string, text: string, limit?: number): HTMLElement 
   );
 }
 
+function aiConfigOrRedirect(ctx: Ctx): AiConfig | null {
+  const key = getApiKey();
+  if (key) return { key, model: ctx.store.state.ai.model };
+  ctx.toast("حط مفتاح OpenAI بصفحة الذكاء الاصطناعي أول", "error");
+  ctx.go("ai");
+  return null;
+}
+
+async function runAi<T>(ctx: Ctx, label: string, task: (cfg: AiConfig) => Promise<T>): Promise<T | undefined> {
+  const cfg = aiConfigOrRedirect(ctx);
+  if (!cfg) return undefined;
+  const from = cfg.model;
+  const result = await ctx.busy(label, () => task(cfg).catch((error: unknown) => {
+    throw new Error(aiErrorText(error, cfg.model));
+  }));
+  keepFallbackModel(ctx, from, cfg);
+  return result;
+}
+
+function templateCard(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
+  const id = view.template;
+  const extra = { jobTitle: view.jobTitle, jobLink: view.jobLink };
+  const ai = ctx.store.state.ai.templates[templateKey(c.id, id)];
+  const showAi = Boolean(ai) && !view.templateRules;
+  const text = showAi && ai ? ai : new TemplateBuilder(ctx.store.state.profile).build(id, c, extra);
+  const limit = ctx.store.state.profile.messaging.message_char_limit;
+  const write = async (): Promise<void> => {
+    const result = await runAi(ctx, "كتابة القالب بالذكاء الاصطناعي…", (cfg) => generateTemplate(c, ctx.store.state.profile, conversationOf(ctx, c), id, extra, cfg));
+    if (!result) return;
+    view.templateRules = false;
+    ctx.store.update((s) => (s.ai.templates[templateKey(c.id, id)] = result), { recompute: false });
+    rerender();
+  };
+  const job = TEMPLATES_WITH_JOB.has(id)
+    ? h("div", { class: "form-grid" },
+      field("الوظيفة (اختياري)", textInput(view.jobTitle, (v) => { view.jobTitle = v.trim(); rerender(); }, { placeholder: ctx.store.state.profile.me.target_roles[0] ?? "" })),
+      field("رابط الوظيفة (اختياري)", textInput(view.jobLink, (v) => { view.jobLink = v.trim(); rerender(); }, { type: "url", dir: "ltr", placeholder: "https://" })),
+    )
+    : null;
+  return card("قوالب حسب الهدف",
+    h("div", { class: "row tight wrap" },
+      select(TEMPLATE_IDS.map((t): [string, string] => [t, TEMPLATE_LABEL[t]]), id, (v) => { view.template = v as TemplateId; view.templateRules = false; rerender(); }),
+      h("button", { type: "button", class: "secondary", onclick: () => void write() }, ai ? "إعادة كتابة بـ AI" : "اكتب بـ AI"),
+      ai ? h("button", { type: "button", class: "link", onclick: () => { view.templateRules = !view.templateRules; rerender(); } }, showAi ? "نسخة القواعد" : "نسخة AI") : null,
+    ),
+    job,
+    h("p", { class: "muted small" }, showAi && ai ? `مكتوبة بـ AI (${ai.model})` : "مكتوبة من القواعد، من بروفايلك وبروفايل الشخص"),
+    messageBlock("عربي", text.ar, limit),
+    messageBlock("English", text.en, limit),
+  );
+}
+
 function trackingForm(ctx: Ctx, c: Contact, onChange: () => void): HTMLElement {
   const set = (patch: Partial<Tracking>): void => patchTracking(ctx, c, patch);
   const date = h("input", { type: "date", value: c.tracking.dateSent });
@@ -135,19 +192,7 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void, onChange: () => void
   const set: MessageSet = variant === "ai" && c.ai ? c.ai : c;
 
   const generate = async (): Promise<void> => {
-    const key = getApiKey();
-    if (!key) {
-      ctx.toast("حط مفتاح OpenAI بصفحة الذكاء الاصطناعي أول", "error");
-      ctx.go("ai");
-      return;
-    }
-    const from = ctx.store.state.ai.model;
-    const cfg: AiConfig = { key, model: from };
-    const result = await ctx.busy("كتابة رسائل بالذكاء الاصطناعي…", () =>
-      generateMessages(c, ctx.store.state.profile, conversationOf(ctx, c), cfg).catch((error: unknown) => {
-        throw new Error(aiErrorText(error, cfg.model));
-      }));
-    keepFallbackModel(ctx, from, cfg);
+    const result = await runAi(ctx, "كتابة رسائل بالذكاء الاصطناعي…", (cfg) => generateMessages(c, ctx.store.state.profile, conversationOf(ctx, c), cfg));
     if (!result) return;
     view.variant = "ai";
     ctx.store.update((s) => (s.ai.messages[c.id] = result));
@@ -196,6 +241,7 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void, onChange: () => void
     messageBlock("Full message - English", set.message_en, limits.message_char_limit),
     messageBlock("متابعة - عربي", set.followup_ar),
     messageBlock("Follow-up - English", set.followup_en),
+    templateCard(ctx, c, rerender),
     card("المتابعة", trackingForm(ctx, c, onChange)),
   );
 }
