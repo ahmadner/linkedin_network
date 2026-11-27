@@ -6,7 +6,7 @@ import { normalizeTags } from "../core/tags";
 import { TEMPLATE_IDS, type TemplateId } from "../core/templates";
 import { asNumber, asRecord, asString, asStringList, defaultProfile, DEFAULT_COMPANY_OVERRIDES, sanitizeOverrides, sanitizeProfile } from "../core/profile";
 import type {
-  AiClassification, AiMessage, AiTemplate, Dataset, LogEntry, OutreachMode, Party, Profile, RawConnection, SourceOrigin,
+  AiClassification, AiMessage, AiSuggestions, AiTemplate, Dataset, LogEntry, OutreachMode, Party, Profile, RawConnection, SourceOrigin,
   StoredInvitation, StoredMessage, Tracking,
 } from "../core/types";
 
@@ -18,6 +18,7 @@ export interface AiState {
   messages: Record<string, AiMessage>;
   classifications: Record<string, AiClassification>;
   templates: Record<string, AiTemplate>;
+  suggestions: AiSuggestions | null;
 }
 
 export interface AppState {
@@ -36,7 +37,7 @@ export function emptyState(): AppState {
     dataset: emptyDataset(),
     tracking: {},
     log: [],
-    ai: { model: DEFAULT_MODEL, messages: {}, classifications: {}, templates: {} },
+    ai: { model: DEFAULT_MODEL, messages: {}, classifications: {}, templates: {}, suggestions: null },
   };
 }
 
@@ -181,6 +182,24 @@ function aiTemplate(v: unknown): AiTemplate | null {
   return { template, ar: asString(r.ar, 6000), en: asString(r.en, 6000), model: asString(r.model, 100), generatedAt: asString(r.generatedAt, 40) };
 }
 
+function aiSuggestions(v: unknown): AiSuggestions | null {
+  const r = asRecord(v);
+  if (!r.generatedAt) return null;
+  return {
+    model: asString(r.model, 100),
+    generatedAt: asString(r.generatedAt, 40),
+    companies: list(r.companies).slice(0, 20).map((x) => {
+      const c = asRecord(x);
+      return { name: asString(c.name, 120), why: asString(c.why, 400), roles: asStringList(c.roles, 6) };
+    }).filter((c) => c.name),
+    people: list(r.people).slice(0, 20).map((x) => {
+      const p = asRecord(x);
+      return { title: asString(p.title, 120), why: asString(p.why, 400) };
+    }).filter((p) => p.title),
+    actions: asStringList(r.actions, 10),
+  };
+}
+
 function aiClassification(v: unknown): AiClassification {
   const r = asRecord(v);
   const out: AiClassification = { model: asString(r.model, 100) };
@@ -291,6 +310,7 @@ function sanitizeState(sections: Sections): AppState {
     messages: recordOf(ai.messages, aiMessage),
     classifications: recordOf(ai.classifications, aiClassification),
     templates: recordOf(ai.templates, aiTemplate),
+    suggestions: aiSuggestions(ai.suggestions),
   };
   return state;
 }

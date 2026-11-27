@@ -119,6 +119,7 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
       s.ai.messages = {};
       s.ai.classifications = {};
       s.ai.templates = {};
+      s.ai.suggestions = null;
     });
   };
 

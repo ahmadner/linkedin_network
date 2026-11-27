@@ -8,6 +8,7 @@ import { renderAi } from "./ui/views/ai";
 import { renderCompanies } from "./ui/views/companies";
 import { renderContacts } from "./ui/views/contacts";
 import { renderDashboard } from "./ui/views/dashboard";
+import { renderOpportunities } from "./ui/views/opportunities";
 import { renderData } from "./ui/views/data";
 import { renderProfile } from "./ui/views/profile";
 import { renderQuality } from "./ui/views/quality";
@@ -17,6 +18,7 @@ const TABS: Array<[ViewId, string]> = [
   ["contacts", "جهات الاتصال"],
   ["companies", "الشركات"],
   ["dashboard", "المؤشرات"],
+  ["opportunities", "الفرص والفجوات"],
   ["profile", "ملفي وأهدافي"],
   ["ai", "الذكاء الاصطناعي"],
   ["quality", "جودة البيانات"],
@@ -63,6 +65,7 @@ async function boot(): Promise<void> {
         case "contacts": return renderContacts(ctx, render);
         case "companies": return renderCompanies(ctx);
         case "dashboard": return renderDashboard(ctx);
+        case "opportunities": return renderOpportunities(ctx, render);
         case "profile": return renderProfile(ctx);
         case "ai": return renderAi(ctx, render);
         case "quality": return renderQuality(ctx);

@@ -176,6 +176,25 @@ export interface AiTemplate {
   generatedAt: string;
 }
 
+export interface SuggestedCompany {
+  name: string;
+  why: string;
+  roles: string[];
+}
+
+export interface SuggestedPeopleType {
+  title: string;
+  why: string;
+}
+
+export interface AiSuggestions {
+  model: string;
+  generatedAt: string;
+  companies: SuggestedCompany[];
+  people: SuggestedPeopleType[];
+  actions: string[];
+}
+
 export interface AiClassification {
   seniority?: string;
   function?: string;

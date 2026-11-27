@@ -1,9 +1,10 @@
+import { getApiKey } from "../ai/key";
 import { isModelAccessError, OpenAiError, type AiConfig } from "../ai/openai";
 import { rowsCsv, rowsWorkbook, XLSX_TYPE, type Column } from "../io/excel";
 import { download, h } from "./dom";
 import type { Store } from "./store";
 
-export type ViewId = "data" | "contacts" | "companies" | "dashboard" | "profile" | "ai" | "quality";
+export type ViewId = "data" | "contacts" | "companies" | "dashboard" | "opportunities" | "profile" | "ai" | "quality";
 
 export interface Ctx {
   store: Store;
@@ -73,4 +74,23 @@ export function exportLinks<T>(ctx: Ctx, name: string, cols: Array<Column<T>>, r
     h("button", { type: "button", class: "link", onclick: csv }, "CSV"),
     h("button", { type: "button", class: "link", onclick: () => void xlsx() }, "Excel"),
   );
+}
+
+function aiConfigOrRedirect(ctx: Ctx): AiConfig | null {
+  const key = getApiKey();
+  if (key) return { key, model: ctx.store.state.ai.model };
+  ctx.toast("حط مفتاح OpenAI بصفحة الذكاء الاصطناعي أول", "error");
+  ctx.go("ai");
+  return null;
+}
+
+export async function runAi<T>(ctx: Ctx, label: string, task: (cfg: AiConfig) => Promise<T>): Promise<T | undefined> {
+  const cfg = aiConfigOrRedirect(ctx);
+  if (!cfg) return undefined;
+  const from = cfg.model;
+  const result = await ctx.busy(label, () => task(cfg).catch((error: unknown) => {
+    throw new Error(aiErrorText(error, cfg.model));
+  }));
+  keepFallbackModel(ctx, from, cfg);
+  return result;
 }

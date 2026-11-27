@@ -181,6 +181,14 @@ input.short { inline-size: 9rem; }
 .card-head h2 { margin: 0; }
 .wide { grid-column: 1 / -1; }
 
+.badge.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.badge.action-follow_up { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
+.badge.action-reconnect { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.badge.action-start { background: var(--good-bg); color: var(--good); border-color: transparent; }
+.grid.compact-rows tbody tr { cursor: default; }
+.suggest-list { padding-inline-start: 1.1rem; display: grid; gap: .5rem; margin: .4rem 0; }
+.suggest-list .row { gap: .6rem; margin-block-start: .2rem; }
+
 .action { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding-block: .75rem; border-block-end: 1px solid var(--border); flex-wrap: wrap; }
 .job { margin-block-start: .75rem; padding: .6rem .8rem; background: var(--surface-2); border-radius: 8px; }
 .notes { margin: .3rem 0 0; padding-inline-start: 1.2rem; font-size: .85rem; }

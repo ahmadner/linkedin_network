@@ -1,8 +1,9 @@
 import { FUNCTION_LABELS, INDUSTRY_LABELS, SENIORITY_LABELS } from "../core/classify";
 import { clip } from "../core/messages";
-import { asRecord, asString } from "../core/profile";
+import { asRecord, asString, asStringList } from "../core/profile";
 import { TEMPLATE_PURPOSE, type TemplateExtra, type TemplateId } from "../core/templates";
-import type { AiClassification, AiMessage, AiTemplate, Contact, MessageSet, Profile, StoredMessage } from "../core/types";
+import type { Gap } from "../core/opportunities";
+import type { AiClassification, AiMessage, AiSuggestions, AiTemplate, CompanyRow, Contact, MessageSet, Profile, StoredMessage } from "../core/types";
 import { chatJson, type AiConfig } from "./openai";
 
 const MESSAGE_SYSTEM = [
@@ -125,6 +126,47 @@ export async function generateTemplate(contact: Contact, profile: Profile, histo
   const en = clip(asString(raw.en, 8000).trim(), limit);
   if (!ar && !en) throw new Error("The model returned an empty message");
   return { template: id, ar, en, model, generatedAt: new Date().toISOString() };
+}
+
+const SUGGEST_SYSTEM = [
+  "You are a career networking advisor. The input describes the user, their goals, and a summary of their current LinkedIn network and its gaps.",
+  "Suggest real, well-known employers that fit the user's target roles, industries and location (or that hire remotely in their region), favouring ones where the network is thin or empty. Never invent companies; if unsure, suggest fewer.",
+  "Also suggest the types of people (job titles) the user should connect with, and a short list of concrete actions for this week.",
+  "Write every 'why' and every action in natural Levantine (Jordanian) Arabic, one short sentence each. Keep company names and job titles in English.",
+  "Return a JSON object: {\"companies\": [{\"name\": string, \"why\": string, \"roles\": [string]}], \"people\": [{\"title\": string, \"why\": string}], \"actions\": [string]} with at most 12 companies, 8 people types and 6 actions.",
+].join(" ");
+
+export async function suggestNetworkMoves(profile: Profile, contacts: Contact[], companies: CompanyRow[], gaps: Gap[], cfg: AiConfig): Promise<AiSuggestions> {
+  const industries = new Map<string, number>();
+  for (const c of contacts) industries.set(c.industry, (industries.get(c.industry) ?? 0) + 1);
+  const input = {
+    me: { ...myFacts(profile), location: profile.me.location },
+    goals: { target_industries: profile.targeting.target_industries, target_functions: profile.targeting.target_functions, target_companies: profile.targeting.target_companies },
+    network: {
+      size: contacts.length,
+      industries: [...industries].sort((a, b) => b[1] - a[1]).slice(0, 12),
+      top_companies: companies.slice(0, 40).map((r) => ({ name: r.name, contacts: r.count, has_recruiter: r.hasRecruiter })),
+      gaps: gaps.map((g) => ({ kind: g.kind, target: g.target, level: g.level, contacts: g.contacts })),
+    },
+  };
+  const { data, model } = await chatJson(cfg, SUGGEST_SYSTEM, JSON.stringify(input));
+  const raw = asRecord(data);
+  const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  const result: AiSuggestions = {
+    model,
+    generatedAt: new Date().toISOString(),
+    companies: list(raw.companies).map((x) => {
+      const r = asRecord(x);
+      return { name: asString(r.name, 120).trim(), why: asString(r.why, 400).trim(), roles: asStringList(r.roles, 6) };
+    }).filter((x) => x.name).slice(0, 12),
+    people: list(raw.people).map((x) => {
+      const r = asRecord(x);
+      return { title: asString(r.title, 120).trim(), why: asString(r.why, 400).trim() };
+    }).filter((x) => x.title).slice(0, 8),
+    actions: asStringList(raw.actions, 6),
+  };
+  if (result.companies.length === 0 && result.people.length === 0) throw new Error("The model returned no suggestions");
+  return result;
 }
 
 const CLASSIFY_SYSTEM = [

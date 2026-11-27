@@ -1,6 +1,4 @@
 import { generateMessages, generateTemplate, templateKey } from "../../ai/features";
-import { getApiKey } from "../../ai/key";
-import type { AiConfig } from "../../ai/openai";
 import { FUNCTION_LABELS, INDUSTRY_LABELS } from "../../core/classify";
 import { nameKey } from "../../core/text";
 import { newTracking } from "../../core/pipeline";
@@ -8,7 +6,7 @@ import { hasTag, normalizeTags, tagCounts } from "../../core/tags";
 import { TEMPLATE_IDS, TEMPLATE_LABEL, TEMPLATES_WITH_JOB, TemplateBuilder, type TemplateId } from "../../core/templates";
 import type { Contact, MessageSet, StoredMessage, Tracking } from "../../core/types";
 import { CONTACT_EXPORT_COLUMNS } from "../../io/excel";
-import { aiErrorText, badge, card, exportLinks, keepFallbackModel, MODE_AR, type Ctx } from "../context";
+import { badge, card, exportLinks, MODE_AR, runAi, type Ctx } from "../context";
 import { copyText, field, fmtNumber, h, replace, select, textArea, textInput } from "../dom";
 
 const PAGE_SIZE = 50;
@@ -57,12 +55,13 @@ function patchTracking(ctx: Ctx, c: Contact, patch: Partial<Tracking>, recompute
 
 function tagEditor(ctx: Ctx, c: Contact, onChange: () => void): HTMLElement {
   const host = h("div", { class: "tag-editor" });
-  const draw = (focus: boolean): void => {
+  const draw = (): void => {
     const input = h("input", { type: "text", list: "known-tags", placeholder: "وسم جديد ثم Enter", "aria-label": "وسم جديد" });
     const save = (tags: string[]): void => {
       patchTracking(ctx, c, { tags: normalizeTags(tags) }, false);
-      draw(true);
+      draw();
       onChange();
+      requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".tag-editor input")?.focus());
     };
     const add = (): void => {
       const values = input.value.split(",").map((v) => v.trim()).filter(Boolean);
@@ -79,9 +78,8 @@ function tagEditor(ctx: Ctx, c: Contact, onChange: () => void): HTMLElement {
       input,
       h("button", { type: "button", class: "link", onclick: add }, "إضافة"),
     );
-    if (focus) input.focus();
   };
-  draw(false);
+  draw();
   return host;
 }
 
@@ -114,25 +112,6 @@ function messageBlock(title: string, text: string, limit?: number): HTMLElement 
     h("div", { class: "msg-head" }, h("strong", {}, title), h("span", { class: over ? "count over" : "count" }, limit ? `${text.length}/${limit}` : `${text.length}`), copy),
     h("pre", { dir: /[؀-ۿ]/.test(text) ? "rtl" : "ltr" }, text),
   );
-}
-
-function aiConfigOrRedirect(ctx: Ctx): AiConfig | null {
-  const key = getApiKey();
-  if (key) return { key, model: ctx.store.state.ai.model };
-  ctx.toast("حط مفتاح OpenAI بصفحة الذكاء الاصطناعي أول", "error");
-  ctx.go("ai");
-  return null;
-}
-
-async function runAi<T>(ctx: Ctx, label: string, task: (cfg: AiConfig) => Promise<T>): Promise<T | undefined> {
-  const cfg = aiConfigOrRedirect(ctx);
-  if (!cfg) return undefined;
-  const from = cfg.model;
-  const result = await ctx.busy(label, () => task(cfg).catch((error: unknown) => {
-    throw new Error(aiErrorText(error, cfg.model));
-  }));
-  keepFallbackModel(ctx, from, cfg);
-  return result;
 }
 
 function templateCard(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
@@ -259,6 +238,13 @@ function header(label: string, key: SortKey | null, rerender: () => void): HTMLE
     rerender();
   });
   return h("th", { "aria-sort": active ? (view.desc ? "descending" : "ascending") : "none" }, button);
+}
+
+export function openContact(ctx: Ctx, id: string): void {
+  view.selected = id;
+  view.q = "";
+  view.page = 0;
+  ctx.go("contacts");
 }
 
 export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
