@@ -57,7 +57,9 @@
       "recency_max": 8,
       "multi_contact_company": 4,
       "penalty_student": -6,
-      "penalty_no_company": -4
+      "penalty_no_company": -4,
+      "penalty_awaiting_reply": -12,
+      "penalty_contacted_recently": -8
     },
     "buckets": {
       "A": 65,
