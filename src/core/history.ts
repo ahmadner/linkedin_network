@@ -44,14 +44,15 @@ function apply(h: ContactHistory, e: HistoryEvent): void {
   pushUnique(h.sources, e.source);
 }
 
-const SENT_STATUSES = new Set(["Note sent", "Message sent", "Follow-up sent", "Replied", "Meeting booked", "Referred"]);
+export const SENT_STATUSES = new Set(["Note sent", "Message sent", "Follow-up sent", "Replied", "Meeting booked", "Referred"]);
+export const REPLIED_STATUSES = new Set(["Replied", "Meeting booked", "Referred"]);
 
 export function trackingEvents(slug: string, name: string, t: Tracking): HistoryEvent[] {
   const events: HistoryEvent[] = [];
   const at = /^\d{4}-\d{2}-\d{2}$/.test(t.dateSent) ? t.dateSent : null;
   const base = { slug, name, source: "tool tracking", channel: "Tracked in tool" };
   if (SENT_STATUSES.has(t.status) && at) events.push({ ...base, at, outgoing: true, kind: "log" });
-  if (t.replied === "Yes" || t.status === "Replied" || t.status === "Meeting booked") {
+  if (t.replied === "Yes" || REPLIED_STATUSES.has(t.status)) {
     events.push({ ...base, at: null, outgoing: false, kind: "log" });
   }
   return events;

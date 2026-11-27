@@ -167,6 +167,20 @@ input.short { inline-size: 9rem; }
 .bar { display: block; block-size: 100%; background: var(--accent); border-radius: 4px; }
 .bar-value { text-align: end; color: var(--muted); }
 
+.chart-wrap { display: grid; gap: .4rem; }
+.chart-scroll { overflow-x: auto; }
+.chart { display: block; direction: ltr; }
+.chart .axis { stroke: var(--border); }
+.chart .tick { fill: var(--muted); font-size: 9px; }
+.s1 { fill: var(--accent); background: var(--accent); }
+.s2 { fill: var(--good); background: var(--good); }
+.legend { display: flex; gap: 1rem; font-size: .8rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: .3rem; }
+.swatch { display: inline-block; inline-size: .7rem; block-size: .7rem; border-radius: 2px; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.card-head h2 { margin: 0; }
+.wide { grid-column: 1 / -1; }
+
 .action { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding-block: .75rem; border-block-end: 1px solid var(--border); flex-wrap: wrap; }
 .job { margin-block-start: .75rem; padding: .6rem .8rem; background: var(--surface-2); border-radius: 8px; }
 .notes { margin: .3rem 0 0; padding-inline-start: 1.2rem; font-size: .85rem; }
