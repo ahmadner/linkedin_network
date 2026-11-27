@@ -5,6 +5,7 @@ import { awaitingMe, createBusy, createToaster, type Ctx, type ViewId } from "./
 import { fmtNumber, h, replace } from "./ui/dom";
 import { icon, type IconName } from "./ui/icons";
 import { Store } from "./ui/store";
+import { applyTheme, themeToggle } from "./ui/theme";
 import { renderAi } from "./ui/views/ai";
 import { renderCompanies } from "./ui/views/companies";
 import { contentBadge, renderContent } from "./ui/views/content";
@@ -156,7 +157,7 @@ async function boot(): Promise<void> {
     h("a", { class: "skip", href: "#main" }, "انتقل للمحتوى"),
     h("div", { class: "app" },
       h("aside", { class: "sidebar" },
-        h("div", { class: "brand" }, h("span", { class: "brand-mark" }, icon("users")), h("span", {}, h("strong", {}, "شبكة LinkedIn"), h("small", {}, "كل البيانات بمتصفحك"))),
+        h("div", { class: "brand" }, h("span", { class: "brand-mark" }, icon("users")), h("span", {}, h("strong", {}, "شبكة LinkedIn"), h("small", {}, "كل البيانات بمتصفحك")), themeToggle()),
         nav,
         status,
       ),
@@ -171,4 +172,5 @@ async function boot(): Promise<void> {
   render();
 }
 
+applyTheme();
 void boot();
