@@ -3,7 +3,7 @@ import { emptyDataset, mergeExport } from "../src/core/dataset";
 import { sanitizeProfile } from "../src/core/profile";
 import { importExport } from "../src/io/exportImport";
 import { emptyState, exportStateZip, importStateZip, reviveState } from "../src/io/state";
-import { contactsCsv } from "../src/io/excel";
+import { CONTACT_EXPORT_COLUMNS, rowsCsv } from "../src/io/excel";
 import { analyze } from "../src/core/pipeline";
 import { strToU8, zipSync } from "fflate";
 import { sampleFiles, sampleProfile } from "./helpers";
@@ -61,6 +61,6 @@ describe("csv export", () => {
     const state = await filledState();
     state.dataset.connections[0]!.company = "=HYPERLINK(\"http://x\")";
     const analysis = analyze({ dataset: state.dataset, profile: state.profile, overrides: {}, tracking: {}, log: [], aiMessages: {}, aiClassifications: {}, today: "2026-11-27" });
-    expect(contactsCsv(analysis.contacts)).toContain("'=HYPERLINK");
+    expect(rowsCsv(CONTACT_EXPORT_COLUMNS, analysis.contacts)).toContain("'=HYPERLINK");
   });
 });

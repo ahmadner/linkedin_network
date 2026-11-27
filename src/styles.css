@@ -137,6 +137,7 @@ input[type="checkbox"] { inline-size: 1rem; block-size: 1rem; }
 .sort { background: none; border: 0; color: inherit; padding: 0; font-weight: 600; }
 .pager { display: flex; gap: .75rem; align-items: center; justify-content: center; flex-wrap: wrap; margin-block-start: .5rem; }
 .ai-dot { color: var(--accent); }
+.export-links { display: inline-flex; gap: .25rem; align-items: center; }
 .chips { display: flex; flex-wrap: wrap; gap: .25rem; margin-block-start: .2rem; }
 .chip { display: inline-flex; align-items: center; gap: .2rem; padding: .05rem .5rem; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: .8rem; }
 .chip.small { font-size: .72rem; padding: 0 .4rem; }

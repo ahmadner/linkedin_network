@@ -1,4 +1,5 @@
-import { card, type Ctx } from "../context";
+import { COMPANY_COLUMNS } from "../../io/excel";
+import { card, exportLinks, type Ctx } from "../context";
 import { fmtNumber, h, replace } from "../dom";
 
 const PAGE_SIZE = 50;
@@ -26,6 +27,7 @@ export function renderCompanies(ctx: Ctx): HTMLElement {
         h("button", { type: "button", class: "secondary", disabled: view.page === 0, onclick: () => { view.page -= 1; draw(); } }, "السابق"),
         h("span", {}, `${fmtNumber(list.length)} شركة · صفحة ${view.page + 1} من ${pages}`),
         h("button", { type: "button", class: "secondary", disabled: view.page >= pages - 1, onclick: () => { view.page += 1; draw(); } }, "التالي"),
+        exportLinks(ctx, "companies", COMPANY_COLUMNS, () => list),
       ),
     );
   };

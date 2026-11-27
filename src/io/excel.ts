@@ -1,8 +1,11 @@
+import type { Worksheet } from "exceljs";
 import type { Analysis, CompanyRow, Contact, MessageSet, Profile } from "../core/types";
 import { toCsv } from "./csv";
 
 type Getter<T> = (row: T) => string | number | Date | null;
-type Column<T> = [header: string, get: Getter<T>, width: number];
+export type Column<T> = [header: string, get: Getter<T>, width: number];
+
+export const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 const dateOf = (iso: string | null): Date | null => (iso ? new Date(`${iso}T00:00:00Z`) : null);
 const yes = (v: boolean): string => (v ? "Yes" : "No");
@@ -92,12 +95,13 @@ export const COMPANY_COLUMNS: Array<Column<CompanyRow>> = [
   ["Emails on File", (r) => r.emails, 14],
 ];
 
-export function contactsCsv(contacts: Contact[]): string {
-  const cols = [...CONNECTION_COLUMNS, ...MESSAGE_COLUMNS.slice(8)];
+export const CONTACT_EXPORT_COLUMNS: Array<Column<Contact>> = [...CONNECTION_COLUMNS, ...MESSAGE_COLUMNS.slice(8)];
+
+export function rowsCsv<T>(cols: Array<Column<T>>, rows: T[]): string {
   return toCsv(
     cols.map(([header]) => header),
-    contacts.map((c) => cols.map(([, get]) => {
-      const v = get(c);
+    rows.map((row) => cols.map(([, get]) => {
+      const v = get(row);
       return v instanceof Date ? v.toISOString().slice(0, 10) : v;
     })),
   );
@@ -120,22 +124,7 @@ export async function buildWorkbook(analysis: Analysis, profile: Profile): Promi
   const { default: ExcelJS } = await import("exceljs");
   const wb = new ExcelJS.Workbook();
   wb.created = new Date();
-  type Sheet = ReturnType<typeof wb.addWorksheet>;
-
-  const table = <T>(ws: Sheet, cols: Array<Column<T>>, rows: T[], freeze: { x: number; y: number }): void => {
-    ws.columns = cols.map(([header, , width]) => ({ header, width }));
-    const head = ws.getRow(1);
-    head.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    head.fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAVY } };
-    head.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-    head.height = 30;
-    for (const row of rows) ws.addRow(cols.map(([, get]) => get(row)));
-    ws.views = [{ state: "frozen", xSplit: freeze.x, ySplit: freeze.y }];
-    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, rows.length + 1), column: cols.length } };
-    cols.forEach(([header], i) => {
-      if (header === "Connected On" || header === "Last Contact") ws.getColumn(i + 1).numFmt = "yyyy-mm-dd";
-    });
-  };
+  type Sheet = Worksheet;
 
   const decorateContacts = (ws: Sheet, rows: Contact[]): void => {
     const urlCol = CONNECTION_COLUMNS.findIndex(([h]) => h === "LinkedIn Profile") + 1;
@@ -264,6 +253,29 @@ export async function buildWorkbook(analysis: Analysis, profile: Profile): Promi
     row.getCell(2).alignment = { wrapText: true, vertical: "top" };
   }
 
+  return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+}
+
+function table<T>(ws: Worksheet, cols: Array<Column<T>>, rows: T[], freeze: { x: number; y: number }): void {
+  ws.columns = cols.map(([header, , width]) => ({ header, width }));
+  const head = ws.getRow(1);
+  head.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  head.fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAVY } };
+  head.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  head.height = 30;
+  for (const row of rows) ws.addRow(cols.map(([, get]) => get(row)));
+  ws.views = [{ state: "frozen", xSplit: freeze.x, ySplit: freeze.y }];
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, rows.length + 1), column: cols.length } };
+  cols.forEach(([, get], i) => {
+    if (rows.some((row) => get(row) instanceof Date)) ws.getColumn(i + 1).numFmt = "yyyy-mm-dd";
+  });
+}
+
+export async function rowsWorkbook<T>(sheetName: string, cols: Array<Column<T>>, rows: T[]): Promise<ArrayBuffer> {
+  const { default: ExcelJS } = await import("exceljs");
+  const wb = new ExcelJS.Workbook();
+  wb.created = new Date();
+  table(wb.addWorksheet(sheetName.replace(/[\\/?*[\]:]/g, " ").slice(0, 31) || "Sheet1"), cols, rows, { x: 1, y: 1 });
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
 }
 

@@ -1,5 +1,6 @@
 import { isModelAccessError, OpenAiError, type AiConfig } from "../ai/openai";
-import { h } from "./dom";
+import { rowsCsv, rowsWorkbook, XLSX_TYPE, type Column } from "../io/excel";
+import { download, h } from "./dom";
 import type { Store } from "./store";
 
 export type ViewId = "data" | "contacts" | "companies" | "dashboard" | "profile" | "ai" | "quality";
@@ -58,4 +59,18 @@ export function keepFallbackModel(ctx: Ctx, from: string, cfg: AiConfig): void {
   if (cfg.model === from) return;
   ctx.store.update((s) => (s.ai.model = cfg.model), { recompute: false });
   ctx.toast(`حسابك ما بيقدر يستخدم ${from}، فكمّلت بـ ${cfg.model} وصار هو الموديل الافتراضي.`);
+}
+
+export function exportLinks<T>(ctx: Ctx, name: string, cols: Array<Column<T>>, rows: () => T[]): HTMLElement {
+  const stamp = (): string => `${name}-${new Date().toISOString().slice(0, 10)}`;
+  const csv = (): void => download(`${stamp()}.csv`, rowsCsv(cols, rows()), "text/csv;charset=utf-8");
+  const xlsx = async (): Promise<void> => {
+    const buffer = await ctx.busy("تجهيز ملف Excel…", () => rowsWorkbook(name, cols, rows()));
+    if (buffer) download(`${stamp()}.xlsx`, buffer, XLSX_TYPE);
+  };
+  return h("span", { class: "export-links" },
+    h("span", { class: "muted small" }, "تنزيل:"),
+    h("button", { type: "button", class: "link", onclick: csv }, "CSV"),
+    h("button", { type: "button", class: "link", onclick: () => void xlsx() }, "Excel"),
+  );
 }

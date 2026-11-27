@@ -6,9 +6,9 @@ import { nameKey } from "../../core/text";
 import { newTracking } from "../../core/pipeline";
 import { hasTag, normalizeTags, tagCounts } from "../../core/tags";
 import type { Contact, MessageSet, StoredMessage, Tracking } from "../../core/types";
-import { contactsCsv } from "../../io/excel";
-import { aiErrorText, badge, card, keepFallbackModel, MODE_AR, type Ctx } from "../context";
-import { copyText, download, field, fmtNumber, h, replace, select, textArea, textInput } from "../dom";
+import { CONTACT_EXPORT_COLUMNS } from "../../io/excel";
+import { aiErrorText, badge, card, exportLinks, keepFallbackModel, MODE_AR, type Ctx } from "../context";
+import { copyText, field, fmtNumber, h, replace, select, textArea, textInput } from "../dom";
 
 const PAGE_SIZE = 50;
 const STATUSES = ["Not started", "Note sent", "Message sent", "Follow-up sent", "Replied", "Meeting booked", "Referred", "Closed - no fit"];
@@ -232,7 +232,7 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
       h("button", { type: "button", class: "secondary", disabled: view.page === 0, onclick: () => { view.page -= 1; drawTable(); } }, "السابق"),
       h("span", {}, `${fmtNumber(list.length)} شخص · صفحة ${view.page + 1} من ${pages}`),
       h("button", { type: "button", class: "secondary", disabled: view.page >= pages - 1, onclick: () => { view.page += 1; drawTable(); } }, "التالي"),
-      h("button", { type: "button", class: "link", onclick: () => download(`contacts-${new Date().toISOString().slice(0, 10)}.csv`, contactsCsv(list), "text/csv;charset=utf-8") }, "تنزيل النتيجة CSV"),
+      exportLinks(ctx, "contacts", CONTACT_EXPORT_COLUMNS, () => list),
       bulkTag(list),
     );
     replace(tableHost,
