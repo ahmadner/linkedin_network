@@ -197,8 +197,19 @@ export function parseConversations(json: unknown): ParsedConversation[] {
   return [...out.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 }
 
-export function parseMessages(json: unknown, conversations: Map<string, ParsedConversation>, owner: Owner): CollectedMessage[] {
+function parentConversations(g: Graph): Map<Obj, string> {
+  const parents = new Map<Obj, string>();
+  for (const obj of g.all) {
+    if (!num(obj.lastActivityAt)) continue;
+    const urn = str(obj.entityUrn) || str(obj.backendUrn);
+    if (urn) for (const m of g.list(obj, "messages")) parents.set(m, urn);
+  }
+  return parents;
+}
+
+export function parseMessages(json: unknown, conversations: Map<string, ParsedConversation>, owner: Owner, conversationUrn = ""): CollectedMessage[] {
   const g = new Graph(json);
+  const parents = parentConversations(g);
   const out = new Map<string, CollectedMessage>();
   for (const obj of g.all) {
     const deliveredAt = num(obj.deliveredAt);
@@ -206,9 +217,11 @@ export function parseMessages(json: unknown, conversations: Map<string, ParsedCo
     const id = str(obj.entityUrn) || str(obj.backendUrn);
     if (!id) continue;
     const from = participantParty(g, g.field(obj, "sender") ?? g.field(obj, "actor"));
-    if (!from.slug && !from.name) continue;
+    if (!from.slug && !from.name && !from.memberId) continue;
     const convRef = g.field(obj, "conversation");
-    const conversationId = (convRef ? str(convRef.entityUrn) || str(convRef.backendUrn) : "") || str(obj.backendConversationUrn) || str(obj["*conversation"]);
+    const referenced = (convRef ? str(convRef.entityUrn) || str(convRef.backendUrn) : "") || str(obj.backendConversationUrn) || str(obj["*conversation"]);
+    const candidates = [referenced, parents.get(obj) ?? "", conversationUrn].filter(Boolean);
+    const conversationId = candidates.find((urn) => conversations.has(urn)) ?? candidates[0] ?? "";
     const conv = conversations.get(conversationId);
     const to = (conv?.participants ?? []).filter((p) => !samePerson(p, from));
     out.set(id, {

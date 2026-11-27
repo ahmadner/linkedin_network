@@ -1,5 +1,5 @@
 import { daysBetween } from "./dates";
-import { nameKey, slugOf } from "./text";
+import { personKey, slugOf } from "./text";
 import type { ContactHistory, Dataset, HistoryEvent, LogEntry, OutreachMode, Party, Tracking } from "./types";
 
 export function emptyHistory(): ContactHistory {
@@ -82,7 +82,7 @@ export class HistoryIndex {
 
   private bucket(slug: string, name: string): ContactHistory {
     const s = slug.toLowerCase();
-    const k = nameKey(name);
+    const k = personKey(name);
     const h = (s && this.bySlug.get(s)) || (k && this.byName.get(k)) || emptyHistory();
     if (s) this.bySlug.set(s, h);
     if (k) this.byName.set(k, h);
@@ -92,7 +92,7 @@ export class HistoryIndex {
   lookup(slug: string, fullName: string): { history: ContactHistory; matchedBy: string } {
     const bySlug = slug ? this.bySlug.get(slug.toLowerCase()) : undefined;
     if (bySlug) return { history: bySlug, matchedBy: "profile URL" };
-    const key = nameKey(fullName);
+    const key = personKey(fullName);
     const byName = key ? this.byName.get(key) : undefined;
     if (byName) return { history: byName, matchedBy: "name match" };
     return { history: emptyHistory(), matchedBy: "" };
@@ -105,7 +105,7 @@ export function hasMessageData(dataset: Dataset): boolean {
 
 export function* datasetEvents(dataset: Dataset): Generator<HistoryEvent> {
   const ownerSlug = dataset.owner.slug;
-  const isOwner = (p: Party): boolean => (ownerSlug !== "" && p.slug === ownerSlug) || (p.slug === "" && nameKey(p.name) === nameKey(dataset.owner.name));
+  const isOwner = (p: Party): boolean => (ownerSlug !== "" && p.slug === ownerSlug) || (p.slug === "" && personKey(p.name) === personKey(dataset.owner.name));
   for (const m of dataset.messages) {
     const counterparts = (m.outgoing ? m.to : [m.from]).filter((p) => !isOwner(p));
     const single = counterparts.length === 1;

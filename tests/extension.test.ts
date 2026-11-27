@@ -82,6 +82,34 @@ describe("extension parsers", () => {
     expect(message!.to).toEqual([{ name: "Lina H", slug: "" }]);
   });
 
+  it("links nested messenger messages to their thread even without a conversation ref", () => {
+    const me = "ACoAAA1111111111111111";
+    const lina = "ACoAAB2222222222222222";
+    const conv = `urn:li:msg_conversation:(urn:li:fsd_profile:${me},2-abc)`;
+    const json = {
+      data: {
+        messengerConversationsBySyncToken: {
+          elements: [{
+            entityUrn: conv,
+            lastActivityAt: 1700000005000,
+            conversationParticipants: [
+              { hostIdentityUrn: `urn:li:fsd_profile:${me}`, participantType: { member: { profileUrl: `https://www.linkedin.com/in/${me}` } } },
+              { hostIdentityUrn: `urn:li:fsd_profile:${lina}`, participantType: { member: { firstName: { text: "Lina" }, lastName: { text: "Haddad, PMP" }, profileUrl: `https://www.linkedin.com/in/${lina}` } } },
+            ],
+            messages: { elements: [{ entityUrn: "urn:li:msg_message:(x,1)", deliveredAt: 1700000005000, body: { text: "hi Lina" }, sender: { hostIdentityUrn: `urn:li:fsd_profile:${me}`, participantType: { member: { profileUrl: `https://www.linkedin.com/in/${me}` } } } }] },
+          }],
+        },
+      },
+    };
+    const owner = { slug: "ahmad-nueirat", name: "Ahmad Nueirat", memberId: me };
+    const conversations = parseConversations(json);
+    const [message] = parseMessages(json, new Map(conversations.map((c) => [c.urn, c])), owner);
+    expect(message).toMatchObject({ conversationId: conv, from: { slug: "ahmad-nueirat" }, to: [{ name: "Lina Haddad, PMP", slug: "" }] });
+    const thread = { data: { messengerMessagesByConversation: { elements: [{ entityUrn: "urn:li:msg_message:(x,2)", deliveredAt: 1700000009000, body: { text: "again" }, sender: { hostIdentityUrn: `urn:li:fsd_profile:${me}` } }] } } };
+    const [second] = parseMessages(thread, new Map(conversations.map((c) => [c.urn, c])), owner, conv);
+    expect(second).toMatchObject({ conversationId: conv, from: { slug: "ahmad-nueirat" }, to: [{ name: "Lina Haddad, PMP" }] });
+  });
+
   it("finds and rewrites messenger GraphQL urls", () => {
     const base = "https://www.linkedin.com/voyager/api/voyagerMessagingGraphQL/graphql";
     const urls = findGraphqlUrls([

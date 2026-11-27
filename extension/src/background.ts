@@ -166,7 +166,7 @@ async function readThreads(job: JobStatus, tabId: number, ids: QueryIds, sinceMs
   for (let i = job.cursor.conversationIndex; i < changed.length; i += 1) {
     const conv = changed[i]!;
     try {
-      const items: CollectedMessage[] = parseMessages(await pageFetch(tabId, messagesUrl(ids.messages, conv.urn)), byUrn, job.owner).filter((m) => Date.parse(m.at) > sinceMs);
+      const items: CollectedMessage[] = parseMessages(await pageFetch(tabId, messagesUrl(ids.messages, conv.urn)), byUrn, job.owner, conv.urn).filter((m) => Date.parse(m.at) > sinceMs);
       if (items.length > 0) await putMessages(items);
       failures = 0;
     } catch (error) {

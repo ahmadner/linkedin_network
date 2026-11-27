@@ -99,6 +99,10 @@ export function cleanPersonName(first: string, last: string): CleanName {
   return { first: f, last: l, full: `${f} ${l}`.trim() };
 }
 
+export function personKey(name: string): string {
+  return nameKey(cleanNamePart(name));
+}
+
 export function cleanPosition(position: string): { clean: string; primary: string } {
   let p = stripJunk(position).replace(BANNER_RE, "").replace(HASHTAG_RE, "");
   p = stripChars(p.replace(/\s{2,}/g, " ").trim(), " |-•·,");

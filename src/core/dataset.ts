@@ -1,5 +1,5 @@
 import { asRecord, asString } from "./profile";
-import { nameKey, splitHeadline } from "./text";
+import { personKey, splitHeadline } from "./text";
 import type { Dataset, ExportImport, Party, RawConnection, StoredMessage } from "./types";
 
 export interface SyncConnection {
@@ -72,17 +72,30 @@ function cleanParty(p: Party): Party {
 }
 
 export function repairMessages(dataset: Dataset): Dataset {
-  const ownerKey = nameKey(dataset.owner.name);
+  const ownerKey = personKey(dataset.owner.name);
   const ownerSlug = dataset.owner.slug;
-  const isOwner = (p: Party): boolean => (ownerSlug !== "" && p.slug === ownerSlug) || (p.slug === "" && ownerKey !== "" && nameKey(p.name) === ownerKey);
-  let changed = false;
-  const messages = dataset.messages.map((m) => {
+  const isOwner = (p: Party): boolean => (ownerSlug !== "" && p.slug === ownerSlug) || (p.slug === "" && ownerKey !== "" && personKey(p.name) === ownerKey);
+  const others = new Map<string, Party[]>();
+  const remember = (conversationId: string, p: Party): void => {
+    if (!conversationId || isOwner(p) || (!p.slug && !p.name)) return;
+    const list = others.get(conversationId) ?? [];
+    if (!list.some((q) => (q.slug && q.slug === p.slug) || (!q.slug && personKey(q.name) === personKey(p.name)))) list.push(p);
+    others.set(conversationId, list);
+  };
+  const cleaned = dataset.messages.map((m) => {
     const from = cleanParty(m.from);
     const to = m.to.map(cleanParty);
     const outgoing = m.origin === "linkedin" ? isOwner(from) : m.outgoing;
-    if (from === m.from && to.every((p, i) => p === m.to[i]) && outgoing === m.outgoing) return m;
+    remember(m.conversationId, from);
+    for (const p of to) remember(m.conversationId, p);
+    return { m, from, to, outgoing };
+  });
+  let changed = false;
+  const messages = cleaned.map(({ m, from, to, outgoing }) => {
+    const filled = outgoing && to.every(isOwner) ? others.get(m.conversationId) ?? to : to;
+    if (from === m.from && filled.length === m.to.length && filled.every((p, i) => p === m.to[i]) && outgoing === m.outgoing) return m;
     changed = true;
-    return { ...m, from, to, outgoing };
+    return { ...m, from, to: filled, outgoing };
   });
   return changed ? { ...dataset, messages } : dataset;
 }
@@ -150,8 +163,8 @@ export function mergeSync(current: Dataset, payload: SyncPayload): Dataset {
 
   const ids = new Set(current.messages.map((m) => m.id));
   const keys = new Set(current.messages.map(messageKey));
-  const ownerKey = nameKey(owner.name);
-  const isOwner = (p: Party): boolean => (owner.slug !== "" && p.slug === owner.slug) || (p.slug === "" && ownerKey !== "" && nameKey(p.name) === ownerKey);
+  const ownerKey = personKey(owner.name);
+  const isOwner = (p: Party): boolean => (owner.slug !== "" && p.slug === owner.slug) || (p.slug === "" && ownerKey !== "" && personKey(p.name) === ownerKey);
   const added: StoredMessage[] = [];
   let newestMessage = current.sync.newestMessageAt;
   for (const m of payload.messages) {
@@ -163,7 +176,7 @@ export function mergeSync(current: Dataset, payload: SyncPayload): Dataset {
     added.push({ ...m, outgoing: isOwner(m.from), origin: "linkedin" });
   }
 
-  return {
+  return repairMessages({
     owner,
     connections: [...current.connections.filter((c) => c.origin !== "linkedin"), ...bySlug.values()],
     messages: added.length > 0 ? sortMessages([...current.messages, ...added]) : current.messages,
@@ -171,7 +184,7 @@ export function mergeSync(current: Dataset, payload: SyncPayload): Dataset {
     importMeta: current.importMeta,
     sync: { lastSyncAt: payload.collectedAt, newestConnectionAt: newestConnection, newestMessageAt: newestMessage },
     photos,
-  };
+  });
 }
 
 function party(value: unknown): Party {

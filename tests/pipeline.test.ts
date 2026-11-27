@@ -143,4 +143,34 @@ describe("analysis", () => {
     const reimported = mergeExport(merged, await importExport(sampleFiles(), "sample"));
     expect(reimported.messages).toHaveLength(dataset.messages.length + 1);
   });
+
+  it("marks a contact as contacted after a synced first message with a decorated name", async () => {
+    const { dataset } = await run();
+    const input = (d: typeof dataset) => ({ dataset: d, profile: sanitizeProfile(sampleProfile()), overrides: {}, tracking: {}, log: [], aiMessages: {}, aiClassifications: {}, today: "2026-11-27" });
+    const target = analyze(input(dataset)).contacts.find((c) => c.mode === "cold")!;
+    const conv = "urn:li:msg_conversation:(urn:li:fsd_profile:ME,2-new)";
+    const merged = mergeSync(dataset, {
+      collectedAt: "2026-11-27T10:00:00Z",
+      owner: { name: "Ahmad Nueirat", slug: "ahmad-nueirat" },
+      connections: [],
+      messages: [{ id: "urn:li:msg_message:77", conversationId: conv, at: "2026-11-27T09:00:00.000Z", from: { name: "Ahmad Nueirat", slug: "ahmad-nueirat" }, to: [{ name: `${target.fullName}, MBA`, slug: "" }], content: "hello" }],
+      notes: [],
+    });
+    expect(analyze(input(merged)).contacts.find((c) => c.id === target.id)!.mode).toBe("nudge");
+  });
+
+  it("fills the recipient of a sent message from the rest of the thread", async () => {
+    const { dataset } = await run();
+    const merged = mergeSync(dataset, {
+      collectedAt: "2026-11-27T10:00:00Z",
+      owner: { name: "Ahmad Nueirat", slug: "ahmad-nueirat" },
+      connections: [],
+      messages: [
+        { id: "a", conversationId: "c-x", at: "2026-11-20T09:00:00.000Z", from: { name: "Ahmad Nueirat", slug: "ahmad-nueirat" }, to: [], content: "hello" },
+        { id: "b", conversationId: "c-x", at: "2026-11-21T09:00:00.000Z", from: { name: "Lina Haddad", slug: "" }, to: [], content: "hi" },
+      ],
+      notes: [],
+    });
+    expect(merged.messages.find((m) => m.id === "a")!.to).toEqual([{ name: "Lina Haddad", slug: "" }]);
+  });
 });

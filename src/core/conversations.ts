@@ -1,4 +1,4 @@
-import { nameKey } from "./text";
+import { personKey } from "./text";
 import type { Contact, StoredMessage } from "./types";
 
 export class ConversationIndex {
@@ -12,7 +12,7 @@ export class ConversationIndex {
       for (const p of [m.from, ...m.to]) {
         if (p.slug) slugs.add(p.slug);
         else {
-          const key = nameKey(p.name);
+          const key = personKey(p.name);
           if (key) names.add(key);
         }
       }
@@ -23,7 +23,7 @@ export class ConversationIndex {
 
   of(c: Pick<Contact, "slug" | "fullName">): StoredMessage[] {
     const bySlug = c.slug ? this.bySlug.get(c.slug) ?? [] : [];
-    const key = nameKey(c.fullName);
+    const key = personKey(c.fullName);
     const byName = key ? this.byName.get(key) ?? [] : [];
     if (byName.length === 0) return bySlug;
     if (bySlug.length === 0) return byName;
