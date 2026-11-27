@@ -98,8 +98,8 @@ describe("analysis", () => {
       collectedAt: "2026-11-27T10:00:00Z",
       owner: { name: "Ahmad Nueirat", slug: "ahmad-nueirat" },
       connections: [
-        { firstName: "Hassan", lastName: "Nimri", slug: "hassan-nimri", headline: "Lead Data Scientist at Aramex", connectedAt: "2024-08-30" },
-        { firstName: "New", lastName: "Person", slug: "new-person", headline: "Talent Partner at Careem", connectedAt: "2026-11-26" },
+        { firstName: "Hassan", lastName: "Nimri", slug: "hassan-nimri", headline: "Lead Data Scientist at Aramex", connectedAt: "2024-08-30", photo: "" },
+        { firstName: "New", lastName: "Person", slug: "new-person", headline: "Talent Partner at Careem", connectedAt: "2026-11-26", photo: "https://media.licdn.com/dms/image/x/profile-100" },
       ],
       messages: [
         { id: "m1", conversationId: "c9", at: "2026-11-26T08:00:00Z", from: { name: "New Person", slug: "new-person" }, to: [{ name: "Ahmad Nueirat", slug: "ahmad-nueirat" }], content: "hi" },
@@ -107,6 +107,7 @@ describe("analysis", () => {
       notes: [],
     });
     expect(merged.sync.newestConnectionAt).toBe("2026-11-26");
+    expect(merged.photos).toEqual({ "new-person": "https://media.licdn.com/dms/image/x/profile-100" });
     const analysis = analyze({
       dataset: merged,
       profile: sanitizeProfile(sampleProfile()),

@@ -19,6 +19,7 @@ async function filledState() {
     model: "gpt-4.1-mini", generatedAt: "2026-11-27T10:00:00Z", messageCount: 3, lastMessageAt: "2026-11-20T09:00:00Z", stage: "waiting_them", tone: "neutral",
     summary_ar: "حكينا عن الشاغر", next_step_ar: "استنى أسبوع", reply_ar: "مرحبًا", reply_en: "Hi",
   };
+  state.dataset.photos = { "noor-ahmad-hr": "https://media.licdn.com/dms/image/v2/abc/profile-displayphoto-shrink_100_100/0?e=1&t=x" };
   state.ai.suggestions = { model: "gpt-4.1-mini", generatedAt: "2026-11-27T10:00:00Z", companies: [{ name: "Careem", why: "بيوظفوا", roles: ["Technical Recruiter"] }], people: [{ title: "Engineering Manager", why: "صاحب قرار" }], actions: ["ضيف 5 Recruiters"] };
   return state;
 }
@@ -32,6 +33,7 @@ describe("state zip", () => {
     expect(restored.dataset.messages).toEqual(state.dataset.messages);
     expect(restored.dataset.invitations).toEqual(state.dataset.invitations);
     expect(restored.dataset.owner).toEqual(state.dataset.owner);
+    expect(restored.dataset.photos).toEqual(state.dataset.photos);
     expect(restored.tracking).toEqual(state.tracking);
     expect(restored.ai).toEqual(state.ai);
     expect(restored.profile).toEqual(state.profile);
@@ -68,5 +70,11 @@ describe("csv export", () => {
     state.dataset.connections[0]!.company = "=HYPERLINK(\"http://x\")";
     const analysis = analyze({ dataset: state.dataset, profile: state.profile, overrides: {}, tracking: {}, log: [], aiMessages: {}, aiClassifications: {}, today: "2026-11-27" });
     expect(rowsCsv(CONTACT_EXPORT_COLUMNS, analysis.contacts)).toContain("'=HYPERLINK");
+  });
+
+  it("keeps only LinkedIn image urls for photos", async () => {
+    const state = await filledState();
+    state.dataset.photos = { ...state.dataset.photos, evil: "https://evil.example/x.png", "bad slug": "https://media.licdn.com/x", quote: 'https://media.licdn.com/x"onerror=1' };
+    expect(Object.keys(importStateZip(exportStateZip(state)).dataset.photos)).toEqual(["noor-ahmad-hr"]);
   });
 });

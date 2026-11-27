@@ -49,6 +49,20 @@ export function badge(text: string, tone = ""): HTMLElement {
   return h("span", { class: `badge ${tone}` }, text);
 }
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return parts.slice(0, 2).map((p) => [...p][0] ?? "").join("").toUpperCase() || "?";
+}
+
+export function avatar(ctx: Ctx, c: Pick<Contact, "slug" | "fullName">, size: "small" | "large" = "small"): HTMLElement {
+  const fallback = (): HTMLElement => h("span", { class: `avatar ${size}`, "aria-hidden": "true" }, initials(c.fullName));
+  const url = c.slug ? ctx.store.state.dataset.photos[c.slug] : undefined;
+  if (!url) return fallback();
+  const img = h("img", { class: `avatar ${size}`, src: url, alt: "", loading: "lazy", decoding: "async", referrerpolicy: "no-referrer" });
+  img.addEventListener("error", () => img.replaceWith(fallback()), { once: true });
+  return img;
+}
+
 export function linkedinLinks(ctx: Ctx, c: Pick<Contact, "slug" | "fullName" | "profileUrl">, compact = false): HTMLElement | null {
   const thread = threadUrl(conversationIndex(ctx.store.state.dataset.messages).of(c));
   const profile = profileLink(c.profileUrl);

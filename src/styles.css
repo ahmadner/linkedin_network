@@ -210,3 +210,6 @@ input.short { inline-size: 9rem; }
   .view.with-drawer { grid-template-columns: 1fr; }
   .drawer { position: static; max-block-size: none; }
 }
+.person { display: inline-flex; align-items: center; gap: .5rem; }
+.avatar { inline-size: 28px; block-size: 28px; border-radius: 50%; flex: none; object-fit: cover; display: inline-grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); font-size: .7rem; font-weight: 700; }
+.avatar.large { inline-size: 56px; block-size: 56px; font-size: 1.1rem; }

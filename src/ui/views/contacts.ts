@@ -8,7 +8,7 @@ import { hasTag, normalizeTags, tagCounts } from "../../core/tags";
 import { TEMPLATE_IDS, TEMPLATE_LABEL, TEMPLATES_WITH_JOB, TemplateBuilder, type TemplateId } from "../../core/templates";
 import type { Contact, ConversationAnalysis, MessageSet, StoredMessage, Tracking } from "../../core/types";
 import { CONTACT_EXPORT_COLUMNS } from "../../io/excel";
-import { badge, card, exportLinks, linkedinLinks, MODE_AR, runAi, type Ctx } from "../context";
+import { avatar, badge, card, exportLinks, linkedinLinks, MODE_AR, runAi, type Ctx } from "../context";
 import { copyText, field, fmtNumber, h, replace, select, textArea, textInput } from "../dom";
 
 const PAGE_SIZE = 50;
@@ -204,7 +204,7 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
   const conversation = history.slice(-5);
   return h("aside", { class: "drawer", "aria-label": c.fullName },
     h("div", { class: "drawer-head" },
-      h("div", {}, h("h2", {}, c.fullName), h("p", { class: "muted" }, [c.positionPrimary || c.positionClean, c.companyClean].filter(Boolean).join(" · "))),
+      h("div", { class: "person" }, avatar(ctx, c, "large"), h("div", {}, h("h2", {}, c.fullName), h("p", { class: "muted" }, [c.positionPrimary || c.positionClean, c.companyClean].filter(Boolean).join(" · ")))),
       h("button", { type: "button", class: "link", onclick: close, "aria-label": "إغلاق" }, "✕"),
     ),
     h("div", { class: "row wrap" },
@@ -300,7 +300,7 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
             h("td", {}, c.idx),
             h("td", {}, badge(c.bucket, `bucket-${c.bucket}`)),
             h("td", {}, c.score),
-            h("td", {}, c.fullName, c.ai ? h("span", { class: "ai-dot", title: "AI" }, " ✦") : null,
+            h("td", {}, h("span", { class: "person" }, avatar(ctx, c), h("span", {}, c.fullName, c.ai ? h("span", { class: "ai-dot", title: "AI" }, " ✦") : null)),
               c.tracking.tags.length > 0 ? h("div", { class: "chips" }, c.tracking.tags.map((t) => h("span", { class: "chip small" }, t))) : null),
             h("td", { class: "clip" }, c.positionPrimary || c.positionClean),
             h("td", { class: "clip" }, c.companyClean),

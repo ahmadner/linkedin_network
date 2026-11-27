@@ -1,7 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { parse, stringify } from "yaml";
 import { DEFAULT_MODEL } from "../ai/openai";
-import { emptyDataset } from "../core/dataset";
+import { emptyDataset, sanitizePhotos } from "../core/dataset";
 import { STAGES, TONES } from "../core/conversation";
 import { normalizeTags } from "../core/tags";
 import { TEMPLATE_IDS, type TemplateId } from "../core/templates";
@@ -51,6 +51,7 @@ const FILES = {
   invitations: "invitations.yaml",
   tracking: "tracking.yaml",
   ai: "ai.yaml",
+  photos: "photos.yaml",
 } as const;
 
 const YAML_OPTIONS = { lineWidth: 0, minContentWidth: 0 } as const;
@@ -79,6 +80,7 @@ export function exportStateZip(state: AppState): Uint8Array {
       [FILES.invitations]: yaml(d.invitations),
       [FILES.tracking]: yaml({ tracking: state.tracking, log: state.log }),
       [FILES.ai]: yaml(state.ai),
+      [FILES.photos]: yaml(d.photos),
     },
     { level: 6 },
   );
@@ -254,6 +256,7 @@ interface Sections {
   invitations: unknown;
   tracking: unknown;
   ai: unknown;
+  photos: unknown;
 }
 
 export function importStateZip(bytes: Uint8Array): AppState {
@@ -269,6 +272,7 @@ export function importStateZip(bytes: Uint8Array): AppState {
     invitations: readYaml(files, FILES.invitations),
     tracking: readYaml(files, FILES.tracking),
     ai: readYaml(files, FILES.ai),
+    photos: readYaml(files, FILES.photos),
   });
 }
 
@@ -284,6 +288,7 @@ export function reviveState(raw: unknown): AppState | null {
     invitations: dataset.invitations,
     tracking: { tracking: r.tracking, log: r.log },
     ai: r.ai,
+    photos: dataset.photos,
   });
 }
 
@@ -319,6 +324,7 @@ function sanitizeState(sections: Sections): AppState {
       newestConnectionAt: asString(sync.newestConnectionAt, 40),
       newestMessageAt: asString(sync.newestMessageAt, 40),
     },
+    photos: sanitizePhotos(asRecord(sections.photos)),
   };
 
   const tracking = asRecord(sections.tracking);

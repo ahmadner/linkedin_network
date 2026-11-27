@@ -8,6 +8,7 @@ export interface SyncConnection {
   slug: string;
   headline: string;
   connectedAt: string;
+  photo: string;
 }
 
 export interface SyncMessage {
@@ -35,7 +36,24 @@ export function emptyDataset(): Dataset {
     invitations: [],
     importMeta: { exportImportedAt: "", exportLabel: "", headerFound: [], skippedRows: 0, filesFound: [], filesMissing: [], warnings: [] },
     sync: { lastSyncAt: "", newestConnectionAt: "", newestMessageAt: "" },
+    photos: {},
   };
+}
+
+export const PHOTO_PREFIX = "https://media.licdn.com/";
+const SLUG = /^[a-z0-9\-._%]+$/;
+
+export function sanitizePhoto(url: string): string {
+  return url.startsWith(PHOTO_PREFIX) && url.length <= 1000 && !/["'\s<>]/.test(url) ? url : "";
+}
+
+export function sanitizePhotos(input: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [slug, url] of Object.entries(input)) {
+    const clean = typeof url === "string" ? sanitizePhoto(url) : "";
+    if (clean && SLUG.test(slug)) out[slug] = clean;
+  }
+  return out;
 }
 
 export function conversationKey(id: string): string {
@@ -69,6 +87,7 @@ export function mergeExport(current: Dataset, imported: ExportImport): Dataset {
     invitations: [...current.invitations.filter((i) => i.origin !== "export" && !knownInvites.has(i.id)), ...imported.invitations],
     importMeta: imported.meta,
     sync: current.sync,
+    photos: current.photos,
   };
 }
 
@@ -84,6 +103,7 @@ export function mergeSync(current: Dataset, payload: SyncPayload): Dataset {
     owner.identityMethod = owner.identityMethod === "Profile.csv" ? owner.identityMethod : "LinkedIn sync";
   }
 
+  const photos = { ...current.photos };
   const bySlug = new Map<string, RawConnection>();
   for (const c of current.connections) if (c.origin === "linkedin") bySlug.set(c.profileUrl, c);
   let newestConnection = current.sync.newestConnectionAt;
@@ -103,6 +123,7 @@ export function mergeSync(current: Dataset, payload: SyncPayload): Dataset {
       issues: [...(company ? [] : ["missing_company"]), ...(position ? [] : ["missing_position"])],
     });
     newestConnection = maxIso(newestConnection, c.connectedAt);
+    if (c.photo) photos[c.slug] = c.photo;
   }
 
   const ids = new Set(current.messages.map((m) => m.id));
@@ -127,6 +148,7 @@ export function mergeSync(current: Dataset, payload: SyncPayload): Dataset {
     invitations: current.invitations,
     importMeta: current.importMeta,
     sync: { lastSyncAt: payload.collectedAt, newestConnectionAt: newestConnection, newestMessageAt: newestMessage },
+    photos,
   };
 }
 
@@ -151,8 +173,9 @@ export function sanitizeSyncPayload(input: unknown): SyncPayload {
         slug: asString(c.slug, 200).trim().toLowerCase(),
         headline: asString(c.headline, 500).trim(),
         connectedAt: ISO_DAY.test(asString(c.connectedAt)) ? asString(c.connectedAt, 10) : "",
+        photo: sanitizePhoto(asString(c.photo, 1000)),
       }))
-      .filter((c) => /^[a-z0-9\-._%]+$/.test(c.slug)),
+      .filter((c) => SLUG.test(c.slug)),
     messages: list(r.messages)
       .map((m) => asRecord(m))
       .map((m) => ({

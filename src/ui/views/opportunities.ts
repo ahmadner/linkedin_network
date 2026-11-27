@@ -5,7 +5,7 @@ import {
 } from "../../core/opportunities";
 import type { SuggestedCompany } from "../../core/types";
 import type { Column } from "../../io/excel";
-import { badge, card, exportLinks, linkedinLinks, runAi, type Ctx } from "../context";
+import { avatar, badge, card, exportLinks, linkedinLinks, runAi, type Ctx } from "../context";
 import { h, select } from "../dom";
 import { openContact } from "./contacts";
 
@@ -99,7 +99,7 @@ function peopleCard(ctx: Ctx, people: PersonSuggestion[], rerender: () => void):
       h("tbody", {}, list.map((p) => {
         const tr = h("tr", { tabindex: 0 },
           h("td", {}, badge(ACTION_LABEL[p.action], `action-${p.action}`)),
-          h("td", {}, p.contact.fullName),
+          h("td", {}, h("span", { class: "person" }, avatar(ctx, p.contact), p.contact.fullName)),
           h("td", { class: "clip" }, p.contact.positionPrimary || p.contact.positionClean),
           h("td", { class: "clip" }, p.contact.companyClean),
           h("td", {}, badge(p.contact.bucket, `bucket-${p.contact.bucket}`)),

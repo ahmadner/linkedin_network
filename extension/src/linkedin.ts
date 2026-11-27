@@ -84,7 +84,37 @@ function isoDay(ms: number): string {
   return ms > 0 ? new Date(ms).toISOString().slice(0, 10) : "";
 }
 
-function profileFrom(obj: Obj | null): { slug: string; firstName: string; lastName: string; headline: string } | null {
+const PHOTO_HOST = "https://media.licdn.com/";
+const PHOTO_WIDTH = 100;
+
+function vectorImageUrl(image: Obj): string {
+  const root = str(image.rootUrl);
+  const artifacts = (Array.isArray(image.artifacts) ? image.artifacts : []).filter(isObj)
+    .map((a) => ({ width: num(a.width), path: str(a.fileIdentifyingUrlPathSegment) }))
+    .filter((a) => a.path)
+    .sort((a, b) => a.width - b.width);
+  const pick = artifacts.find((a) => a.width >= PHOTO_WIDTH) ?? artifacts[artifacts.length - 1];
+  const url = pick ? `${root}${pick.path}` : "";
+  return url.startsWith(PHOTO_HOST) ? url : "";
+}
+
+export function photoOf(obj: Obj): string {
+  const queue: Array<{ value: unknown; depth: number }> = Object.entries(obj)
+    .filter(([key]) => /picture|image/i.test(key))
+    .map(([, value]) => ({ value, depth: 0 }));
+  while (queue.length > 0) {
+    const { value, depth } = queue.shift()!;
+    if (!isObj(value) || depth > 6) continue;
+    if (typeof value.rootUrl === "string" && Array.isArray(value.artifacts)) {
+      const url = vectorImageUrl(value);
+      if (url) return url;
+    }
+    for (const child of Object.values(value)) if (child !== null && typeof child === "object") queue.push({ value: child, depth: depth + 1 });
+  }
+  return "";
+}
+
+function profileFrom(obj: Obj | null): { slug: string; firstName: string; lastName: string; headline: string; photo: string } | null {
   if (!obj) return null;
   const slug = str(obj.publicIdentifier).toLowerCase();
   if (!slug) return null;
@@ -93,6 +123,7 @@ function profileFrom(obj: Obj | null): { slug: string; firstName: string; lastNa
     firstName: textOf(obj.firstName),
     lastName: textOf(obj.lastName),
     headline: textOf(obj.headline) || textOf(obj.occupation),
+    photo: photoOf(obj),
   };
 }
 

@@ -13,6 +13,7 @@ export interface CollectedConnection {
   lastName: string;
   headline: string;
   connectedAt: string;
+  photo: string;
 }
 
 export interface CollectedMessage {
@@ -31,6 +32,7 @@ export interface SyncSince {
 
 export interface SyncOptions {
   messages: boolean;
+  photos: boolean;
   maxConversations: number;
 }
 

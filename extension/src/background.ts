@@ -162,7 +162,7 @@ async function syncConnections(job: JobStatus, tabId: number): Promise<void> {
     job.cursor.connectionsStart += items.length;
     await save(job);
     const since = dayBefore(job.since.newestConnectionAt);
-    if (since && items.every((c) => c.connectedAt !== "" && c.connectedAt < since)) return;
+    if (!job.options.photos && since && items.every((c) => c.connectedAt !== "" && c.connectedAt < since)) return;
     await politeDelay();
   }
   note(job, "Stopped connections after the safety page limit");
@@ -372,7 +372,7 @@ async function start(since: SyncSince, options: SyncOptions): Promise<JobStatus>
 
 function sanitizeOptions(value: Partial<SyncOptions> | undefined): SyncOptions {
   const max = Number(value?.maxConversations);
-  return { messages: value?.messages !== false, maxConversations: Number.isFinite(max) && max > 0 ? Math.min(max, 20_000) : 3000 };
+  return { messages: value?.messages !== false, photos: value?.photos === true, maxConversations: Number.isFinite(max) && max > 0 ? Math.min(max, 20_000) : 3000 };
 }
 
 function sanitizeSince(value: Partial<SyncSince> | undefined): SyncSince {

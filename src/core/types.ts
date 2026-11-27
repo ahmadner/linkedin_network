@@ -135,6 +135,7 @@ export interface Dataset {
   invitations: StoredInvitation[];
   importMeta: ImportMeta;
   sync: SyncState;
+  photos: Record<string, string>;
 }
 
 export interface LogEntry {

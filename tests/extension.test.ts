@@ -12,7 +12,32 @@ describe("extension parsers", () => {
         { entityUrn: "urn:li:fsd_profile:ABC", publicIdentifier: "Lina-Haddad", firstName: "Lina", lastName: "Haddad", headline: "Talent Partner at Arab Bank" },
       ],
     };
-    expect(parseConnections(json)).toEqual([{ slug: "lina-haddad", firstName: "Lina", lastName: "Haddad", headline: "Talent Partner at Arab Bank", connectedAt: "2026-11-20" }]);
+    expect(parseConnections(json)).toEqual([{ slug: "lina-haddad", firstName: "Lina", lastName: "Haddad", headline: "Talent Partner at Arab Bank", connectedAt: "2026-11-20", photo: "" }]);
+  });
+
+  it("picks a small LinkedIn photo for each connection", () => {
+    const picture = {
+      displayImageReference: {
+        vectorImage: {
+          rootUrl: "https://media.licdn.com/dms/image/v2/abc/profile-displayphoto-shrink_",
+          artifacts: [
+            { width: 800, fileIdentifyingUrlPathSegment: "800_800/0?e=1&t=a" },
+            { width: 100, fileIdentifyingUrlPathSegment: "100_100/0?e=1&t=b" },
+            { width: 200, fileIdentifyingUrlPathSegment: "200_200/0?e=1&t=c" },
+          ],
+        },
+      },
+    };
+    const json = {
+      included: [
+        { entityUrn: "c1", createdAt: 1, connectedMember: "p1" },
+        { entityUrn: "p1", publicIdentifier: "lina", firstName: "Lina", lastName: "H", profilePicture: picture },
+        { entityUrn: "c2", createdAt: 1, connectedMember: "p2" },
+        { entityUrn: "p2", publicIdentifier: "omar", firstName: "Omar", lastName: "K", profilePicture: { displayImageReference: { vectorImage: { rootUrl: "https://evil.example/", artifacts: [{ width: 100, fileIdentifyingUrlPathSegment: "x" }] } } } },
+      ],
+    };
+    const bySlug = Object.fromEntries(parseConnections(json).map((c) => [c.slug, c.photo]));
+    expect(bySlug).toEqual({ lina: "https://media.licdn.com/dms/image/v2/abc/profile-displayphoto-shrink_100_100/0?e=1&t=b", omar: "" });
   });
 
   it("reads the legacy connection shape and the owner", () => {

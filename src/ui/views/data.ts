@@ -16,6 +16,7 @@ let poller: ReturnType<typeof setInterval> | undefined;
 let lastJob: JobStatus | null = null;
 let extensionVersion = "";
 let includeMessages = true;
+let refreshPhotos = false;
 let detectionStarted = false;
 
 const PHASE_AR: Record<string, string> = {
@@ -116,7 +117,7 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
     try {
       lastJob = await startSync(
         { newestConnectionAt: sync.newestConnectionAt, newestMessageAt: sync.newestMessageAt },
-        { messages: includeMessages, maxConversations: 3000 },
+        { messages: includeMessages, photos: refreshPhotos, maxConversations: 3000 },
       );
       poll(ctx, rerender);
       rerender();
@@ -127,6 +128,8 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
 
   const messagesToggle = h("input", { type: "checkbox", checked: includeMessages });
   messagesToggle.addEventListener("change", () => (includeMessages = messagesToggle.checked));
+  const photosToggle = h("input", { type: "checkbox", checked: refreshPhotos });
+  photosToggle.addEventListener("change", () => (refreshPhotos = photosToggle.checked));
 
   append(body, [
     h("p", {}, installed ? badge(`الـ Extension مركّب (v${extensionVersion})`, "good") : badge("الـ Extension مش مركّب أو مش مسموح لهاد الموقع", "bad")),
@@ -134,6 +137,7 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
       ? `آخر مزامنة: ${sync.lastSyncAt.slice(0, 16).replace("T", " ")}. المزامنة الجاية بتسحب بس الأشخاص والرسائل الأحدث من هيك.`
       : "ما في مزامنة لسا. أول مزامنة بتسحب كل شي، فالأفضل ترفع الـ Export أول."),
     h("label", { class: "check" }, messagesToggle, " اسحب الرسائل كمان (أبطأ)"),
+    h("label", { class: "check" }, photosToggle, " حدّث بيانات وصور كل الأشخاص (بيمر على كل شبكتك، أبطأ)"),
     h("div", { class: "row" },
       h("button", { type: "button", disabled: !installed || running, onclick: () => void start() }, "مزامنة الآن"),
       running ? h("button", { type: "button", class: "secondary", onclick: () => void cancelSync().then(rerender) }, "إيقاف") : null,
