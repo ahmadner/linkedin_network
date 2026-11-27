@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "LinkedIn Network Sync",
+  "version": "1.0.0",
+  "description": "Reads your own LinkedIn connections and messages, with your own session, and hands them to the LinkedIn Network tool.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAllPXlMvjnaNbOcdlLH+tACBJC3Qy5ab2XVVJ4G4zq5zxsvIUy9m8lNpCwPc5wLHCt3sqdu1cHaGsIsB2ZW/6I8xGOUMD3Ar+bf6cHx0OokdKhFRxK+d+8+NNLQdW3b2it2QY0+yz9yNyP251EiMj4UZcWRq7PxtC6mUNa6UhY5/1iqrziub1maTJZB0YI2JCeJNXGfDU19GdLyhUMNxUWyw7IaWe0vOkAhqepUJMYY1wpjj81MC+ACqbPzvDHs1OY5GrSk5rC8zj9+083f+9gAVeNg9vrATYMQNDm0gbHZhCMH47ZIPja0riM70L+alCfgLfQ/cMudHqpQfLQMCbZQIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": ["scripting", "storage", "alarms", "unlimitedStorage"],
+  "host_permissions": ["https://www.linkedin.com/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "LinkedIn Network Sync", "default_popup": "popup.html" },
+  "externally_connectable": { "matches": [] }
+}

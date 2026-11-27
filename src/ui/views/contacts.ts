@@ -1,0 +1,250 @@
+import { generateMessages } from "../../ai/features";
+import { getApiKey } from "../../ai/key";
+import { FUNCTION_LABELS, INDUSTRY_LABELS } from "../../core/classify";
+import { nameKey } from "../../core/text";
+import { EMPTY_TRACKING } from "../../core/pipeline";
+import type { Contact, MessageSet, StoredMessage, Tracking } from "../../core/types";
+import { contactsCsv } from "../../io/excel";
+import { badge, card, MODE_AR, type Ctx } from "../context";
+import { copyText, download, field, fmtNumber, h, replace, select, textArea, textInput } from "../dom";
+
+const PAGE_SIZE = 50;
+const STATUSES = ["Not started", "Note sent", "Message sent", "Follow-up sent", "Replied", "Meeting booked", "Referred", "Closed - no fit"];
+
+type SortKey = "score" | "fullName" | "companyClean" | "seniorityRank" | "daysSinceContact";
+
+const view = {
+  q: "",
+  bucket: "",
+  mode: "",
+  status: "",
+  fn: "",
+  industry: "",
+  sort: "score" as SortKey,
+  desc: true,
+  page: 0,
+  selected: "",
+  variant: "rules" as "rules" | "ai",
+};
+
+function matches(c: Contact): boolean {
+  if (view.bucket && c.bucket !== view.bucket) return false;
+  if (view.mode && c.mode !== view.mode) return false;
+  if (view.status && c.tracking.status !== view.status) return false;
+  if (view.fn && c.function !== view.fn) return false;
+  if (view.industry && c.industry !== view.industry) return false;
+  if (!view.q) return true;
+  const q = view.q.toLowerCase();
+  return c.fullName.toLowerCase().includes(q) || c.companyClean.toLowerCase().includes(q) || c.positionClean.toLowerCase().includes(q);
+}
+
+function sorted(list: Contact[]): Contact[] {
+  const dir = view.desc ? -1 : 1;
+  const key = view.sort;
+  return [...list].sort((a, b) => {
+    const x = a[key];
+    const y = b[key];
+    if (x === y) return a.idx - b.idx;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y))) * dir;
+  });
+}
+
+function conversationOf(ctx: Ctx, c: Contact): StoredMessage[] {
+  const key = nameKey(c.fullName);
+  return ctx.store.state.dataset.messages.filter((m) => {
+    const parties = [m.from, ...m.to];
+    return parties.some((p) => (c.slug && p.slug === c.slug) || (!p.slug && key && nameKey(p.name) === key));
+  });
+}
+
+function messageBlock(title: string, text: string, limit?: number): HTMLElement {
+  const copy = h("button", { type: "button", class: "link" }, "نسخ");
+  copy.addEventListener("click", () => void copyText(text).then((ok) => (copy.textContent = ok ? "انسخ ✓" : "ما زبط النسخ")));
+  const over = limit !== undefined && text.length > limit;
+  return h("div", { class: "msg" },
+    h("div", { class: "msg-head" }, h("strong", {}, title), h("span", { class: over ? "count over" : "count" }, limit ? `${text.length}/${limit}` : `${text.length}`), copy),
+    h("pre", { dir: /[؀-ۿ]/.test(text) ? "rtl" : "ltr" }, text),
+  );
+}
+
+function trackingForm(ctx: Ctx, c: Contact): HTMLElement {
+  const set = (patch: Partial<Tracking>): void => ctx.store.update((s) => {
+    s.tracking[c.id] = { ...EMPTY_TRACKING, ...s.tracking[c.id], ...patch };
+  });
+  const date = h("input", { type: "date", value: c.tracking.dateSent });
+  date.addEventListener("change", () => set({ dateSent: date.value }));
+  const today = (): void => set({ dateSent: new Date().toISOString().slice(0, 10) });
+  return h("div", { class: "form-grid" },
+    field("الحالة", select(STATUSES.map((s) => [s, s]), c.tracking.status, (v) => set({ status: v, ...(v !== "Not started" && !c.tracking.dateSent ? { dateSent: new Date().toISOString().slice(0, 10) } : {}) }))),
+    field("تاريخ الإرسال", h("div", { class: "row tight" }, date, h("button", { type: "button", class: "link", onclick: today }, "اليوم"))),
+    field("رد؟", select([["", "—"], ["Yes", "Yes"], ["No", "No"], ["Pending", "Pending"]], c.tracking.replied, (v) => set({ replied: v }))),
+    field("الخطوة الجاية", textInput(c.tracking.nextStep, (v) => set({ nextStep: v }))),
+    field("ملاحظات", textArea(c.tracking.notes, (v) => set({ notes: v }), { rows: 3 })),
+  );
+}
+
+function drawer(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
+  const limits = ctx.store.state.profile.messaging;
+  const variant = view.variant === "ai" && c.ai ? "ai" : "rules";
+  const set: MessageSet = variant === "ai" && c.ai ? c.ai : c;
+
+  const generate = async (): Promise<void> => {
+    const key = getApiKey();
+    if (!key) {
+      ctx.toast("حط مفتاح OpenAI بصفحة الذكاء الاصطناعي أول", "error");
+      ctx.go("ai");
+      return;
+    }
+    const result = await ctx.busy("كتابة رسائل بالذكاء الاصطناعي…", () =>
+      generateMessages(c, ctx.store.state.profile, conversationOf(ctx, c), { key, model: ctx.store.state.ai.model }));
+    if (!result) return;
+    view.variant = "ai";
+    ctx.store.update((s) => (s.ai.messages[c.id] = result));
+  };
+
+  const close = (): void => {
+    view.selected = "";
+    rerender();
+  };
+
+  const conversation = conversationOf(ctx, c).slice(-5);
+  return h("aside", { class: "drawer", "aria-label": c.fullName },
+    h("div", { class: "drawer-head" },
+      h("div", {}, h("h2", {}, c.fullName), h("p", { class: "muted" }, [c.positionPrimary || c.positionClean, c.companyClean].filter(Boolean).join(" · "))),
+      h("button", { type: "button", class: "link", onclick: close, "aria-label": "إغلاق" }, "✕"),
+    ),
+    h("div", { class: "row wrap" },
+      badge(`${c.bucket} · ${c.score}`, `bucket-${c.bucket}`),
+      badge(MODE_AR[c.mode] ?? c.mode),
+      badge(c.archetypeLabel),
+      c.profileUrl.startsWith("https://www.linkedin.com/") ? h("a", { href: c.profileUrl, target: "_blank", rel: "noopener noreferrer" }, "فتح البروفايل") : null,
+    ),
+    h("p", { class: "advice" }, c.outreachAdvice),
+    h("details", {},
+      h("summary", {}, "التفاصيل والنقاط"),
+      h("dl", { class: "facts" },
+        ...([
+          ["Seniority", c.seniority], ["Function", c.function], ["Industry", c.industry], ["Email", c.email || "—"],
+          ["Connected", c.connectedDate ?? "—"], ["Msgs sent / received", `${c.history.sentByMe} / ${c.history.received}`],
+          ["Last contact", c.history.lastContact ?? "—"], ["Score breakdown", c.scoreBreakdown], ["Evidence", c.evidence],
+        ] as Array<[string, string]>).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]),
+      ),
+    ),
+    conversation.length > 0 ? h("details", {},
+      h("summary", {}, `آخر الرسائل (${conversation.length})`),
+      h("ul", { class: "thread" }, conversation.map((m) => h("li", { class: m.outgoing ? "out" : "in" }, h("small", {}, m.at.slice(0, 10)), " ", m.content || "—"))),
+    ) : null,
+    h("div", { class: "tabs small" },
+      h("button", { type: "button", class: variant === "rules" ? "active" : "", onclick: () => { view.variant = "rules"; rerender(); } }, "رسائل القواعد"),
+      h("button", { type: "button", class: variant === "ai" ? "active" : "", disabled: !c.ai, onclick: () => { view.variant = "ai"; rerender(); } }, "رسائل AI"),
+      h("button", { type: "button", class: "secondary", onclick: () => void generate() }, c.ai ? "إعادة كتابة بـ AI" : "اكتب بـ AI"),
+    ),
+    messageBlock("نوت قصيرة - عربي", set.note_ar, limits.note_char_limit),
+    messageBlock("Short note - English", set.note_en, limits.note_char_limit),
+    messageBlock("رسالة كاملة - عربي", set.message_ar, limits.message_char_limit),
+    messageBlock("Full message - English", set.message_en, limits.message_char_limit),
+    messageBlock("متابعة - عربي", set.followup_ar),
+    messageBlock("Follow-up - English", set.followup_en),
+    card("المتابعة", trackingForm(ctx, c)),
+  );
+}
+
+function header(label: string, key: SortKey | null, rerender: () => void): HTMLElement {
+  if (!key) return h("th", {}, label);
+  const active = view.sort === key;
+  const button = h("button", { type: "button", class: "sort" }, label, active ? (view.desc ? " ▼" : " ▲") : "");
+  button.addEventListener("click", () => {
+    if (active) view.desc = !view.desc;
+    else {
+      view.sort = key;
+      view.desc = key === "score" || key === "seniorityRank";
+    }
+    rerender();
+  });
+  return h("th", { "aria-sort": active ? (view.desc ? "descending" : "ascending") : "none" }, button);
+}
+
+export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
+  if (!ctx.store.hasData) {
+    return h("div", { class: "view" }, card("ما في بيانات لسا", h("p", {}, "ارفع ملف الـ Export أو اعمل مزامنة من صفحة البيانات."), h("button", { type: "button", onclick: () => ctx.go("data") }, "روح لصفحة البيانات")));
+  }
+  const all = ctx.store.analysis.contacts;
+  const tableHost = h("div", { class: "table-host" });
+
+  const drawTable = (): void => {
+    const list = sorted(all.filter(matches));
+    const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+    view.page = Math.min(view.page, pages - 1);
+    const rows = list.slice(view.page * PAGE_SIZE, (view.page + 1) * PAGE_SIZE);
+    const pager = h("div", { class: "pager" },
+      h("button", { type: "button", class: "secondary", disabled: view.page === 0, onclick: () => { view.page -= 1; drawTable(); } }, "السابق"),
+      h("span", {}, `${fmtNumber(list.length)} شخص · صفحة ${view.page + 1} من ${pages}`),
+      h("button", { type: "button", class: "secondary", disabled: view.page >= pages - 1, onclick: () => { view.page += 1; drawTable(); } }, "التالي"),
+      h("button", { type: "button", class: "link", onclick: () => download(`contacts-${new Date().toISOString().slice(0, 10)}.csv`, contactsCsv(list), "text/csv;charset=utf-8") }, "تنزيل النتيجة CSV"),
+    );
+    replace(tableHost,
+      h("div", { class: "scroll" }, h("table", { class: "grid" },
+        h("thead", {}, h("tr", {},
+          header("#", null, rerender), header("الفئة", null, rerender), header("النقاط", "score", rerender), header("الاسم", "fullName", rerender),
+          header("المنصب", null, rerender), header("الشركة", "companyClean", rerender), header("المستوى", "seniorityRank", rerender),
+          header("التخصص", null, rerender), header("الوضع", null, rerender), header("آخر تواصل (أيام)", "daysSinceContact", rerender), header("المتابعة", null, rerender),
+        )),
+        h("tbody", {}, rows.map((c) => {
+          const tr = h("tr", { class: c.id === view.selected ? "selected" : "", tabindex: 0 },
+            h("td", {}, c.idx),
+            h("td", {}, badge(c.bucket, `bucket-${c.bucket}`)),
+            h("td", {}, c.score),
+            h("td", {}, c.fullName, c.ai ? h("span", { class: "ai-dot", title: "AI" }, " ✦") : null),
+            h("td", { class: "clip" }, c.positionPrimary || c.positionClean),
+            h("td", { class: "clip" }, c.companyClean),
+            h("td", {}, c.seniority),
+            h("td", {}, c.function),
+            h("td", {}, badge(MODE_AR[c.mode] ?? c.mode, `mode-${c.mode}`)),
+            h("td", {}, c.daysSinceContact ?? "—"),
+            h("td", {}, c.tracking.status),
+          );
+          const open = (): void => {
+            view.selected = c.id;
+            rerender();
+          };
+          tr.addEventListener("click", open);
+          tr.addEventListener("keydown", (e) => e.key === "Enter" && open());
+          return tr;
+        })),
+      )),
+      pager,
+    );
+  };
+
+  const search = h("input", { type: "search", placeholder: "بحث بالاسم أو الشركة أو المنصب", value: view.q });
+  search.addEventListener("input", () => {
+    view.q = search.value.trim();
+    view.page = 0;
+    drawTable();
+  });
+  const filter = (label: string, options: string[], key: "bucket" | "mode" | "status" | "fn" | "industry", names?: Record<string, string>): HTMLElement =>
+    select([["", label], ...options.map((o): [string, string] => [o, names?.[o] ?? o])], view[key], (v) => {
+      view[key] = v;
+      view.page = 0;
+      drawTable();
+    });
+
+  drawTable();
+  const selected = view.selected ? all.find((c) => c.id === view.selected) : undefined;
+  return h("div", { class: selected ? "view with-drawer" : "view" },
+    h("div", { class: "main-col" },
+      h("div", { class: "toolbar" },
+        search,
+        filter("كل الفئات", ["A", "B", "C", "D", "X"], "bucket"),
+        filter("كل الأوضاع", ["cold", "reconnect", "nudge"], "mode", MODE_AR),
+        filter("كل حالات المتابعة", STATUSES, "status"),
+        filter("كل التخصصات", FUNCTION_LABELS, "fn"),
+        filter("كل القطاعات", INDUSTRY_LABELS, "industry"),
+      ),
+      tableHost,
+    ),
+    selected ? drawer(ctx, selected, rerender) : null,
+  );
+}

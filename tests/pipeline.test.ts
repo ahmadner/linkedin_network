@@ -1,0 +1,125 @@
+import { describe, expect, it } from "vitest";
+import { emptyDataset, mergeExport, mergeSync } from "../src/core/dataset";
+import { analyze } from "../src/core/pipeline";
+import { sanitizeProfile } from "../src/core/profile";
+import type { LogEntry } from "../src/core/types";
+import { importExport } from "../src/io/exportImport";
+import { sampleFiles, sampleProfile } from "./helpers";
+
+const log: LogEntry[] = [
+  { profileUrl: "https://www.linkedin.com/in/ibrahim-salti/", fullName: "Ibrahim Salti", channel: "email", outgoing: true, sentAt: "2026-11-20", note: "" },
+  { profileUrl: "", fullName: "Maysa Odeh", channel: "whatsapp", outgoing: false, sentAt: "2026-09-02", note: "" },
+];
+
+async function run() {
+  const imported = await importExport(sampleFiles(), "sample");
+  const dataset = mergeExport(emptyDataset(), imported);
+  const analysis = analyze({
+    dataset,
+    profile: sanitizeProfile(sampleProfile()),
+    overrides: { optimiza: "Software & IT Services" },
+    tracking: {},
+    log,
+    aiMessages: {},
+    aiClassifications: {},
+    today: "2026-11-27",
+  });
+  return { imported, dataset, analysis, byName: (n: string) => analysis.contacts.find((c) => c.fullName === n)! };
+}
+
+describe("export import", () => {
+  it("reads connections, repairs shifted rows and resolves the owner", async () => {
+    const { imported } = await run();
+    expect(imported.connections).toHaveLength(20);
+    const yousef = imported.connections.find((c) => c.firstName === "Yousef")!;
+    expect(yousef.lastName).toBe("Mansour, PMP");
+    expect(yousef.issues).toContain("repaired_shifted_row");
+    expect(imported.owner).toMatchObject({ name: "Ahmad Nueirat", slug: "ahmad-nueirat", identityMethod: "Profile.csv" });
+    expect(imported.messages).toHaveLength(8);
+    expect(imported.invitations).toHaveLength(3);
+    expect(imported.suggestedProfile.headline).toBe("Backend Engineer | Java & Spring Boot");
+  });
+});
+
+describe("analysis", () => {
+  it("dedupes by profile slug", async () => {
+    const { analysis } = await run();
+    expect(analysis.contacts).toHaveLength(19);
+    expect(analysis.quality.duplicatesRemoved).toBe(1);
+  });
+
+  it("derives the outreach mode from history", async () => {
+    const { byName } = await run();
+    expect(byName("Lina Haddad").mode).toBe("nudge");
+    expect(byName("Tareq Awwad").mode).toBe("reconnect");
+    expect(byName("Rana Saleh").mode).toBe("reconnect");
+    expect(byName("Hassan Nimri").mode).toBe("cold");
+    expect(byName("Ali Barakat").mode).toBe("cold");
+    expect(byName("Ibrahim Salti").mode).toBe("nudge");
+    expect(byName("Maysa Odeh").historyMatch).toBe("name match");
+    expect(byName("Mahmoud Darwish").history.received).toBe(1);
+    expect(byName("Omar Khalil").history.sentByMe).toBe(1);
+  });
+
+  it("scores and writes messages", async () => {
+    const { byName, analysis } = await run();
+    const noor = byName("Noor Ahmad");
+    expect(noor.isRecruiter).toBe(true);
+    expect(noor.scoreBreakdown).toContain("target company");
+    expect(analysis.contacts[0]!.score).toBeGreaterThanOrEqual(analysis.contacts[1]!.score);
+    for (const c of analysis.contacts) {
+      expect(c.note_en.length).toBeLessThanOrEqual(200);
+      expect(c.note_ar.length).toBeLessThanOrEqual(200);
+      expect(c.message_en).toContain("Ahmad");
+    }
+    expect(byName("Mahmoud Darwish").archetype).toBe("founder");
+  });
+
+  it("feeds in-tool tracking back into the history", async () => {
+    const { dataset } = await run();
+    const analysis = analyze({
+      dataset,
+      profile: sanitizeProfile(sampleProfile()),
+      overrides: {},
+      tracking: { "slug:hassan-nimri": { status: "Message sent", dateSent: "2026-11-25", replied: "", nextStep: "", notes: "" } },
+      log: [],
+      aiMessages: {},
+      aiClassifications: {},
+      today: "2026-11-27",
+    });
+    const hassan = analysis.contacts.find((c) => c.slug === "hassan-nimri")!;
+    expect(hassan.mode).toBe("nudge");
+    expect(hassan.history.sentByMe).toBe(1);
+  });
+
+  it("merges an incremental LinkedIn sync without losing export data", async () => {
+    const { dataset } = await run();
+    const merged = mergeSync(dataset, {
+      collectedAt: "2026-11-27T10:00:00Z",
+      owner: { name: "Ahmad Nueirat", slug: "ahmad-nueirat" },
+      connections: [
+        { firstName: "Hassan", lastName: "Nimri", slug: "hassan-nimri", headline: "Lead Data Scientist at Aramex", connectedAt: "2024-08-30" },
+        { firstName: "New", lastName: "Person", slug: "new-person", headline: "Talent Partner at Careem", connectedAt: "2026-11-26" },
+      ],
+      messages: [
+        { id: "m1", conversationId: "c9", at: "2026-11-26T08:00:00Z", from: { name: "New Person", slug: "new-person" }, to: [{ name: "Ahmad Nueirat", slug: "ahmad-nueirat" }], content: "hi" },
+      ],
+      notes: [],
+    });
+    expect(merged.sync.newestConnectionAt).toBe("2026-11-26");
+    const analysis = analyze({
+      dataset: merged,
+      profile: sanitizeProfile(sampleProfile()),
+      overrides: {},
+      tracking: {},
+      log: [],
+      aiMessages: {},
+      aiClassifications: {},
+      today: "2026-11-27",
+    });
+    const hassan = analysis.contacts.find((c) => c.slug === "hassan-nimri")!;
+    expect(hassan.email).toBe("hassan.nimri@example.net");
+    expect(analysis.contacts.find((c) => c.slug === "new-person")!.mode).toBe("reconnect");
+    expect(analysis.contacts).toHaveLength(20);
+  });
+});

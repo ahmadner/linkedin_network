@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>LinkedIn Network Sync</title>
+<style>
+body { font: 14px/1.5 system-ui, "Segoe UI", Tahoma, sans-serif; margin: 0; padding: 14px; width: 300px; color: #1f2937; }
+h1 { font-size: 15px; margin: 0 0 8px; }
+p { margin: 6px 0; }
+.muted { color: #6b7280; font-size: 12px; }
+button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid #1f3864; background: #1f3864; color: #fff; cursor: pointer; }
+button.secondary { background: #fff; color: #1f3864; }
+.row { display: flex; gap: 8px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>LinkedIn Network Sync</h1>
+<p id="status">…</p>
+<p id="counts" class="muted"></p>
+<p id="notes" class="muted"></p>
+<div class="row">
+<button id="open" type="button">افتح الأداة</button>
+<button id="cancel" type="button" class="secondary" hidden>إيقاف</button>
+</div>
+<script type="module" src="popup.js"></script>
+</body>
+</html>

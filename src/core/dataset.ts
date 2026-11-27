@@ -1,0 +1,155 @@
+import { asRecord, asString } from "./profile";
+import { splitHeadline } from "./text";
+import type { Dataset, ExportImport, Party, RawConnection, StoredMessage } from "./types";
+
+export interface SyncConnection {
+  firstName: string;
+  lastName: string;
+  slug: string;
+  headline: string;
+  connectedAt: string;
+}
+
+export interface SyncMessage {
+  id: string;
+  conversationId: string;
+  at: string;
+  from: Party;
+  to: Party[];
+  content: string;
+}
+
+export interface SyncPayload {
+  collectedAt: string;
+  owner: Party;
+  connections: SyncConnection[];
+  messages: SyncMessage[];
+  notes: string[];
+}
+
+export function emptyDataset(): Dataset {
+  return {
+    owner: { name: "", slug: "", identityMethod: "not determined" },
+    connections: [],
+    messages: [],
+    invitations: [],
+    importMeta: { exportImportedAt: "", exportLabel: "", headerFound: [], skippedRows: 0, filesFound: [], filesMissing: [], warnings: [] },
+    sync: { lastSyncAt: "", newestConnectionAt: "", newestMessageAt: "" },
+  };
+}
+
+function sortMessages(list: StoredMessage[]): StoredMessage[] {
+  return list.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+}
+
+export function mergeExport(current: Dataset, imported: ExportImport): Dataset {
+  const owner = { ...current.owner };
+  if (!owner.name && imported.owner.name) {
+    owner.name = imported.owner.name;
+    owner.identityMethod = imported.owner.identityMethod;
+  }
+  if (!owner.slug && imported.owner.slug) owner.slug = imported.owner.slug;
+
+  const knownIds = new Set(imported.messages.map((m) => m.id));
+  const knownInvites = new Set(imported.invitations.map((i) => i.id));
+  return {
+    owner,
+    connections: [...current.connections.filter((c) => c.origin !== "export"), ...imported.connections],
+    messages: sortMessages([...current.messages.filter((m) => m.origin !== "export" && !knownIds.has(m.id)), ...imported.messages]),
+    invitations: [...current.invitations.filter((i) => i.origin !== "export" && !knownInvites.has(i.id)), ...imported.invitations],
+    importMeta: imported.meta,
+    sync: current.sync,
+  };
+}
+
+function maxIso(a: string, b: string): string {
+  return a > b ? a : b;
+}
+
+export function mergeSync(current: Dataset, payload: SyncPayload): Dataset {
+  const owner = { ...current.owner };
+  if (payload.owner.slug) owner.slug = payload.owner.slug;
+  if (payload.owner.name && (!owner.name || owner.identityMethod !== "Profile.csv")) {
+    owner.name = payload.owner.name;
+    owner.identityMethod = owner.identityMethod === "Profile.csv" ? owner.identityMethod : "LinkedIn sync";
+  }
+
+  const bySlug = new Map<string, RawConnection>();
+  for (const c of current.connections) if (c.origin === "linkedin") bySlug.set(c.profileUrl, c);
+  let newestConnection = current.sync.newestConnectionAt;
+  for (const c of payload.connections) {
+    const { position, company } = splitHeadline(c.headline);
+    const url = `https://www.linkedin.com/in/${c.slug}`;
+    bySlug.set(url, {
+      firstName: c.firstName,
+      lastName: c.lastName,
+      profileUrl: url,
+      email: "",
+      company,
+      position,
+      connectedOn: c.connectedAt,
+      origin: "linkedin",
+      sourceRow: 0,
+      issues: [...(company ? [] : ["missing_company"]), ...(position ? [] : ["missing_position"])],
+    });
+    newestConnection = maxIso(newestConnection, c.connectedAt);
+  }
+
+  const ids = new Set(current.messages.map((m) => m.id));
+  const added: StoredMessage[] = [];
+  let newestMessage = current.sync.newestMessageAt;
+  for (const m of payload.messages) {
+    if (ids.has(m.id)) continue;
+    ids.add(m.id);
+    added.push({ ...m, outgoing: owner.slug !== "" && m.from.slug === owner.slug, origin: "linkedin" });
+    newestMessage = maxIso(newestMessage, m.at);
+  }
+
+  return {
+    owner,
+    connections: [...current.connections.filter((c) => c.origin !== "linkedin"), ...bySlug.values()],
+    messages: added.length > 0 ? sortMessages([...current.messages, ...added]) : current.messages,
+    invitations: current.invitations,
+    importMeta: current.importMeta,
+    sync: { lastSyncAt: payload.collectedAt, newestConnectionAt: newestConnection, newestMessageAt: newestMessage },
+  };
+}
+
+function party(value: unknown): Party {
+  const r = asRecord(value);
+  return { name: asString(r.name, 200).trim(), slug: asString(r.slug, 200).trim().toLowerCase() };
+}
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}/;
+
+export function sanitizeSyncPayload(input: unknown): SyncPayload {
+  const r = asRecord(input);
+  const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  return {
+    collectedAt: ISO_DAY.test(asString(r.collectedAt)) ? asString(r.collectedAt, 40) : new Date().toISOString(),
+    owner: party(r.owner),
+    connections: list(r.connections)
+      .map((c) => asRecord(c))
+      .map((c) => ({
+        firstName: asString(c.firstName, 200).trim(),
+        lastName: asString(c.lastName, 200).trim(),
+        slug: asString(c.slug, 200).trim().toLowerCase(),
+        headline: asString(c.headline, 500).trim(),
+        connectedAt: ISO_DAY.test(asString(c.connectedAt)) ? asString(c.connectedAt, 10) : "",
+      }))
+      .filter((c) => /^[a-z0-9\-._%]+$/.test(c.slug)),
+    messages: list(r.messages)
+      .map((m) => asRecord(m))
+      .map((m) => ({
+        id: asString(m.id, 200),
+        conversationId: asString(m.conversationId, 300),
+        at: ISO_DAY.test(asString(m.at)) ? asString(m.at, 40) : "",
+        from: party(m.from),
+        to: list(m.to).map(party).slice(0, 50),
+        content: asString(m.content, 4000),
+      }))
+      .filter((m) => m.id && m.at),
+    notes: list(r.notes).map((n) => asString(n, 500)).filter(Boolean).slice(0, 50),
+  };
+}
+
