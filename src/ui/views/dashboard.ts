@@ -1,18 +1,12 @@
 import { countBy, messageActivity, networkGrowth, replyStats } from "../../core/stats";
 import { buildWorkbook, XLSX_TYPE, type Column } from "../../io/excel";
-import { columnChart } from "../charts";
-import { exportLinks, MODE_AR, noData, type Ctx } from "../context";
+import { barFill, columnChart } from "../charts";
+import { exportLinks, kpi, MODE_AR, noData, type Ctx } from "../context";
 import { download, fmtNumber, h } from "../dom";
 
 type Count = [string, number];
 
 const COUNT_COLUMNS: Array<Column<Count>> = [["Label", ([label]) => label, 36], ["Count", ([, n]) => n, 10]];
-
-function barFill(ratio: number): HTMLElement {
-  const el = h("span", { class: "bar" });
-  el.style.inlineSize = `${Math.round(ratio * 100)}%`;
-  return el;
-}
 
 function bars(ctx: Ctx, title: string, name: string, all: Count[], limit = 12, note = ""): HTMLElement {
   const data = all.slice(0, limit);
@@ -29,7 +23,6 @@ export function renderDashboard(ctx: Ctx): HTMLElement {
   if (!ctx.store.hasData) return noData(ctx);
   const { contacts, companies } = ctx.store.analysis;
   const messages = ctx.store.state.dataset.messages;
-  const kpi = (label: string, value: string, note: string): HTMLElement => h("div", { class: "kpi" }, h("span", {}, label), h("strong", {}, value), h("small", {}, note));
   const n = (value: number): string => fmtNumber(value);
   const exportExcel = async (): Promise<void> => {
     const buffer = await ctx.busy("تجهيز ملف Excel…", () => buildWorkbook(ctx.store.analysis, ctx.store.state.profile));

@@ -1,3 +1,5 @@
+import type { Post } from "./content";
+
 export type Goal = "job_search" | "sales" | "partnership" | "networking";
 export type Bucket = "A" | "B" | "C" | "D" | "X";
 export type OutreachMode = "cold" | "reconnect" | "nudge";
@@ -124,6 +126,7 @@ export interface ExportImport {
   connections: RawConnection[];
   messages: StoredMessage[];
   invitations: StoredInvitation[];
+  posts: Post[];
   meta: ImportMeta;
   suggestedProfile: Partial<MeProfile>;
 }

@@ -7,6 +7,7 @@ import { icon, type IconName } from "./ui/icons";
 import { Store } from "./ui/store";
 import { renderAi } from "./ui/views/ai";
 import { renderCompanies } from "./ui/views/companies";
+import { contentBadge, renderContent } from "./ui/views/content";
 import { closeContact, renderContacts } from "./ui/views/contacts";
 import { renderDashboard } from "./ui/views/dashboard";
 import { renderData } from "./ui/views/data";
@@ -34,6 +35,9 @@ const GROUPS: Array<[string, Page[]]> = [
   ]],
   ["التواصل", [
     { id: "outreach", label: "الإرسال", icon: "send", intro: "راجع الرسائل وابعتها، أو ابعت طلبات تواصل لناس بمجالك." },
+  ]],
+  ["المحتوى", [
+    { id: "content", label: "إنتاج المحتوى", icon: "pen", intro: "حلّل منشوراتك، خطط، واكتب منشورات وصور أقوى بالذكاء الاصطناعي. النشر دايمًا بإيدك." },
   ]],
   ["التحليل", [
     { id: "dashboard", label: "المؤشرات", icon: "chart", intro: "أرقام شبكتك ونشاط رسائلك." },
@@ -98,6 +102,7 @@ async function boot(): Promise<void> {
   };
 
   function badgeFor(id: ViewId): string {
+    if (id === "content") return contentBadge(ctx);
     if (!store.hasData) return "";
     if (id === "home") {
       const n = store.analysis.contacts.filter(awaitingMe).length;
@@ -131,6 +136,7 @@ async function boot(): Promise<void> {
         case "dashboard": return renderDashboard(ctx);
         case "opportunities": return renderOpportunities(ctx, render);
         case "outreach": return renderOutreach(ctx, render);
+        case "content": return renderContent(ctx);
         case "profile": return renderProfile(ctx);
         case "ai": return renderAi(ctx);
         case "quality": return renderQuality(ctx);

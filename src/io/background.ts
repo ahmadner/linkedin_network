@@ -1,6 +1,6 @@
 import type { ExportImport } from "../core/types";
 import type { NamedFile } from "./exportImport";
-import type { AppState } from "./state";
+import type { AppState, StateBundle, StoredImage } from "./state";
 import type { WorkerRequest } from "./worker";
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
@@ -43,10 +43,10 @@ export function importExportInBackground(files: NamedFile[], label: string): Pro
   return call<ExportImport>({ kind: "export", files, label }, files.map((f) => f.bytes.buffer));
 }
 
-export function loadStateInBackground(bytes: Uint8Array): Promise<AppState> {
-  return call<AppState>({ kind: "loadState", bytes }, [bytes.buffer]);
+export function loadStateInBackground(bytes: Uint8Array): Promise<StateBundle> {
+  return call<StateBundle>({ kind: "loadState", bytes }, [bytes.buffer]);
 }
 
-export function saveStateInBackground(state: AppState): Promise<Uint8Array> {
-  return call<Uint8Array>({ kind: "saveState", state });
+export function saveStateInBackground(state: AppState, images: StoredImage[]): Promise<Uint8Array> {
+  return call<Uint8Array>({ kind: "saveState", state, images }, images.map((img) => img.bytes.buffer));
 }

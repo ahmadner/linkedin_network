@@ -1,4 +1,5 @@
 import { unzipSync } from "fflate";
+import { postKey, safeUrl, type Post } from "../core/content";
 import { parseDate } from "../core/dates";
 import { nameKey, slugOf } from "../core/text";
 import type { ExportImport, MeProfile, Owner, Party, RawConnection, StoredInvitation, StoredMessage } from "../core/types";
@@ -9,7 +10,7 @@ export interface NamedFile {
   bytes: Uint8Array;
 }
 
-const WANTED = ["connections.csv", "messages.csv", "invitations.csv", "profile.csv", "positions.csv", "skills.csv", "education.csv"];
+const WANTED = ["connections.csv", "messages.csv", "invitations.csv", "profile.csv", "positions.csv", "skills.csv", "education.csv", "shares.csv"];
 
 export function baseName(path: string): string {
   return (path.split(/[\\/]/).pop() ?? path).toLowerCase();
@@ -216,6 +217,32 @@ async function readInvitations(table: Table, owner: Owner): Promise<StoredInvita
   return out;
 }
 
+function shareText(raw: string): string {
+  let text = raw.replace(/\r\n?/g, "\n").trim();
+  if (text.length > 1 && text.startsWith('"') && text.endsWith('"')) text = text.slice(1, -1).replace(/""/g, '"').trim();
+  return text.slice(0, 6000);
+}
+
+export async function readShares(table: Table): Promise<Post[]> {
+  const col = {
+    date: table.column("date"),
+    link: table.column("sharelink", "share link"),
+    text: table.column("sharecommentary", "share commentary", "commentary"),
+    shared: table.column("sharedurl", "shared url"),
+    media: table.column("mediaurl", "media url"),
+  };
+  const out = new Map<string, Post>();
+  for (const row of table.rows) {
+    const link = cell(row, col.link).trim();
+    const text = shareText(cell(row, col.text));
+    if (!text && !link) continue;
+    const at = messageTimestamp(cell(row, col.date));
+    const id = postKey(link) || `x-${await digest(`${at}|${link}|${text.slice(0, 200)}`)}`;
+    out.set(id, { id, at, text, url: safeUrl(link), sharedUrl: safeUrl(cell(row, col.shared)), media: cell(row, col.media).trim(), origin: "export", metrics: null });
+  }
+  return [...out.values()].sort((a, b) => b.at.localeCompare(a.at));
+}
+
 function suggestProfile(files: Map<string, Uint8Array>): Partial<MeProfile> {
   const read = (name: string, required: string): Table | null => {
     const bytes = files.get(name);
@@ -292,11 +319,22 @@ export async function importExport(files: NamedFile[], label: string): Promise<E
     missing.push("Invitations.csv");
   }
 
+  let posts: Post[] = [];
+  const sharesBytes = expanded.get("shares.csv");
+  const sharesTable = sharesBytes ? tableFrom(decodeBytes(sharesBytes), (c) => c.includes("date") && (c.includes("sharecommentary") || c.includes("sharelink"))) : null;
+  if (sharesTable) {
+    found.push("Shares.csv");
+    posts = await readShares(sharesTable);
+  } else {
+    missing.push("Shares.csv");
+  }
+
   return {
     owner,
     connections: records,
     messages,
     invitations,
+    posts,
     suggestedProfile: suggestProfile(expanded),
     meta: {
       exportImportedAt: new Date().toISOString(),

@@ -46,3 +46,9 @@ export function columnChart(title: string, series: ColumnSeries[], points: Colum
     : null;
   return h("div", { class: "chart-wrap" }, legend, h("div", { class: "chart-scroll" }, chart));
 }
+
+export function barFill(ratio: number): HTMLElement {
+  const el = h("span", { class: "bar" });
+  el.style.inlineSize = `${Math.round(Math.min(1, Math.max(0, ratio)) * 100)}%`;
+  return el;
+}

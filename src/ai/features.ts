@@ -7,7 +7,7 @@ import { STAGES, TONES } from "../core/conversation";
 import type { AiClassification, AiMessage, AiSuggestions, AiTemplate, CompanyRow, Contact, ConversationAnalysis, ConversationStage, ConversationTone, MessageSet, Profile, StoredMessage } from "../core/types";
 import { chatJson, type AiConfig } from "./openai";
 
-const NAME_RULE = "The user's name is given as name_en and name_ar (first_name_en and first_name_ar). Use the Arabic spelling in Arabic text and the English spelling in English text. If name_ar is empty, keep the English spelling and never transliterate it yourself.";
+export const NAME_RULE = "The user's name is given as name_en and name_ar (first_name_en and first_name_ar). Use the Arabic spelling in Arabic text and the English spelling in English text. If name_ar is empty, keep the English spelling and never transliterate it yourself.";
 
 const MESSAGE_SYSTEM = [
   NAME_RULE,
@@ -21,7 +21,7 @@ const MESSAGE_SYSTEM = [
   "Return a JSON object with exactly these string keys: note_ar, note_en, message_ar, message_en, followup_ar, followup_en.",
 ].join(" ");
 
-function myFacts(profile: Profile): Record<string, unknown> {
+export function myFacts(profile: Profile): Record<string, unknown> {
   const me = profile.me;
   return {
     name_en: me.full_name,
