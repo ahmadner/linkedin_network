@@ -176,6 +176,22 @@ export interface AiTemplate {
   generatedAt: string;
 }
 
+export type ConversationStage = "intro" | "in_progress" | "opportunity" | "waiting_them" | "waiting_me" | "gone_cold" | "closed";
+export type ConversationTone = "positive" | "neutral" | "negative";
+
+export interface ConversationAnalysis {
+  model: string;
+  generatedAt: string;
+  messageCount: number;
+  lastMessageAt: string;
+  stage: ConversationStage;
+  tone: ConversationTone;
+  summary_ar: string;
+  next_step_ar: string;
+  reply_ar: string;
+  reply_en: string;
+}
+
 export interface SuggestedCompany {
   name: string;
   why: string;

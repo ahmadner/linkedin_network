@@ -1,10 +1,12 @@
-import { generateMessages, generateTemplate, templateKey } from "../../ai/features";
+import { analyzeConversation, generateMessages, generateTemplate, templateKey } from "../../ai/features";
 import { FUNCTION_LABELS, INDUSTRY_LABELS } from "../../core/classify";
-import { nameKey } from "../../core/text";
+import { isStale, STAGE_LABEL, STAGES, TONE_LABEL } from "../../core/conversation";
+import { conversationIndex } from "../../core/conversations";
+import { todayIso } from "../../core/dates";
 import { newTracking } from "../../core/pipeline";
 import { hasTag, normalizeTags, tagCounts } from "../../core/tags";
 import { TEMPLATE_IDS, TEMPLATE_LABEL, TEMPLATES_WITH_JOB, TemplateBuilder, type TemplateId } from "../../core/templates";
-import type { Contact, MessageSet, StoredMessage, Tracking } from "../../core/types";
+import type { Contact, ConversationAnalysis, MessageSet, StoredMessage, Tracking } from "../../core/types";
 import { CONTACT_EXPORT_COLUMNS } from "../../io/excel";
 import { badge, card, exportLinks, MODE_AR, runAi, type Ctx } from "../context";
 import { copyText, field, fmtNumber, h, replace, select, textArea, textInput } from "../dom";
@@ -22,6 +24,7 @@ const view = {
   fn: "",
   industry: "",
   tag: "",
+  stage: "",
   sort: "score" as SortKey,
   desc: true,
   page: 0,
@@ -33,13 +36,14 @@ const view = {
   jobLink: "",
 };
 
-function matches(c: Contact): boolean {
+function matches(c: Contact, analyses: Record<string, ConversationAnalysis>): boolean {
   if (view.bucket && c.bucket !== view.bucket) return false;
   if (view.mode && c.mode !== view.mode) return false;
   if (view.status && c.tracking.status !== view.status) return false;
   if (view.fn && c.function !== view.fn) return false;
   if (view.industry && c.industry !== view.industry) return false;
   if (view.tag && !hasTag(c, view.tag)) return false;
+  if (view.stage && analyses[c.id]?.stage !== view.stage) return false;
   if (!view.q) return true;
   const q = view.q.toLowerCase();
   return [c.fullName, c.companyClean, c.positionClean, c.tracking.notes, ...c.tracking.tags].some((v) => v.toLowerCase().includes(q));
@@ -97,11 +101,7 @@ function sorted(list: Contact[]): Contact[] {
 }
 
 function conversationOf(ctx: Ctx, c: Contact): StoredMessage[] {
-  const key = nameKey(c.fullName);
-  return ctx.store.state.dataset.messages.filter((m) => {
-    const parties = [m.from, ...m.to];
-    return parties.some((p) => (c.slug && p.slug === c.slug) || (!p.slug && key && nameKey(p.name) === key));
-  });
+  return conversationIndex(ctx.store.state.dataset.messages).of(c);
 }
 
 function messageBlock(title: string, text: string, limit?: number): HTMLElement {
@@ -147,6 +147,36 @@ function templateCard(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
   );
 }
 
+const STAGE_TONE: Record<string, string> = { opportunity: "good", waiting_me: "bad", gone_cold: "warn", closed: "" };
+
+function analysisCard(ctx: Ctx, c: Contact, history: StoredMessage[], rerender: () => void): HTMLElement {
+  const result = ctx.store.state.ai.analyses[c.id];
+  const run = async (): Promise<void> => {
+    const out = await runAi(ctx, "تحليل المحادثة…", (cfg) => analyzeConversation(c, ctx.store.state.profile, history, cfg, todayIso()));
+    if (!out) return;
+    ctx.store.update((s) => (s.ai.analyses[c.id] = out), { recompute: false });
+    rerender();
+  };
+  const limit = ctx.store.state.profile.messaging.message_char_limit;
+  return card("تحليل المحادثة",
+    h("div", { class: "row tight wrap" },
+      h("button", { type: "button", class: "secondary", onclick: () => void run() }, result ? "حلّل من جديد" : "حلّل المحادثة بـ AI"),
+      result && isStale(result, history) ? badge("في رسائل جديدة بعد التحليل", "warn") : null,
+    ),
+    result ? h("div", { class: "analysis" },
+      h("div", { class: "row tight wrap" },
+        badge(STAGE_LABEL[result.stage], STAGE_TONE[result.stage] ?? ""),
+        badge(`النبرة: ${TONE_LABEL[result.tone]}`, result.tone === "positive" ? "good" : result.tone === "negative" ? "bad" : ""),
+        h("span", { class: "muted small" }, `${result.generatedAt.slice(0, 10)} · ${result.model}`),
+      ),
+      result.summary_ar ? h("p", {}, result.summary_ar) : null,
+      result.next_step_ar ? h("p", { class: "advice" }, h("strong", {}, "الخطوة الجاية: "), result.next_step_ar) : null,
+      result.reply_ar ? messageBlock("رد مقترح - عربي", result.reply_ar, limit) : null,
+      result.reply_en ? messageBlock("Suggested reply - English", result.reply_en, limit) : null,
+    ) : h("p", { class: "muted small" }, `بيقرأ آخر ${Math.min(history.length, 20)} رسالة، وبيحكيلك وين وقفتوا وشو الخطوة الجاية، وبيقترح رد جاهز.`),
+  );
+}
+
 function trackingForm(ctx: Ctx, c: Contact, onChange: () => void): HTMLElement {
   const set = (patch: Partial<Tracking>): void => patchTracking(ctx, c, patch);
   const date = h("input", { type: "date", value: c.tracking.dateSent });
@@ -182,7 +212,8 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void, onChange: () => void
     rerender();
   };
 
-  const conversation = conversationOf(ctx, c).slice(-5);
+  const history = conversationOf(ctx, c);
+  const conversation = history.slice(-5);
   return h("aside", { class: "drawer", "aria-label": c.fullName },
     h("div", { class: "drawer-head" },
       h("div", {}, h("h2", {}, c.fullName), h("p", { class: "muted" }, [c.positionPrimary || c.positionClean, c.companyClean].filter(Boolean).join(" · "))),
@@ -209,6 +240,7 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void, onChange: () => void
       h("summary", {}, `آخر الرسائل (${conversation.length})`),
       h("ul", { class: "thread" }, conversation.map((m) => h("li", { class: m.outgoing ? "out" : "in" }, h("small", {}, m.at.slice(0, 10)), " ", m.content || "—"))),
     ) : null,
+    history.length > 0 ? analysisCard(ctx, c, history, rerender) : null,
     h("div", { class: "tabs small" },
       h("button", { type: "button", class: variant === "rules" ? "active" : "", onclick: () => { view.variant = "rules"; rerender(); } }, "رسائل القواعد"),
       h("button", { type: "button", class: variant === "ai" ? "active" : "", disabled: !c.ai, onclick: () => { view.variant = "ai"; rerender(); } }, "رسائل AI"),
@@ -256,7 +288,8 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
   const tableHost = h("div", { class: "table-host" });
 
   const drawTable = (): void => {
-    const list = sorted(all.filter(matches));
+    const analyses = ctx.store.state.ai.analyses;
+    const list = sorted(all.filter((c) => matches(c, analyses)));
     const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
     view.page = Math.min(view.page, pages - 1);
     const rows = list.slice(view.page * PAGE_SIZE, (view.page + 1) * PAGE_SIZE);
@@ -328,7 +361,7 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
     view.page = 0;
     drawTable();
   });
-  const filter = (label: string, options: string[], key: "bucket" | "mode" | "status" | "fn" | "industry" | "tag", names?: Record<string, string>): HTMLElement =>
+  const filter = (label: string, options: string[], key: "bucket" | "mode" | "status" | "fn" | "industry" | "tag" | "stage", names?: Record<string, string>): HTMLElement =>
     select([["", label], ...options.map((o): [string, string] => [o, names?.[o] ?? o])], view[key], (v) => {
       view[key] = v;
       view.page = 0;
@@ -346,6 +379,7 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
         filter("كل حالات المتابعة", STATUSES, "status"),
         filter("كل التخصصات", FUNCTION_LABELS, "fn"),
         filter("كل القطاعات", INDUSTRY_LABELS, "industry"),
+        Object.keys(ctx.store.state.ai.analyses).length > 0 ? filter("كل المحادثات (AI)", STAGES, "stage", STAGE_LABEL) : null,
         tags.length > 0 ? filter("كل الوسوم", tags.map(([t]) => t), "tag", Object.fromEntries(tags.map(([t, n]) => [t, `${t} (${n})`]))) : null,
       ),
       tableHost,

@@ -14,6 +14,12 @@ async function filledState() {
   state.dataset = mergeExport(emptyDataset(), await importExport(sampleFiles(), "sample"));
   state.tracking["slug:noor-ahmad-hr"] = { status: "Message sent", dateSent: "2026-11-20", replied: "No", nextStep: "wait", notes: "multi\nline: notes", tags: ["Referral", "Amman"] };
   state.ai.messages["slug:noor-ahmad-hr"] = { mode: "nudge", model: "gpt-5-mini", generatedAt: "2026-11-27T10:00:00Z", note_ar: "أ", note_en: "a", message_ar: "ب", message_en: "b", followup_ar: "ج", followup_en: "c" };
+  state.ai.templates["slug:noor-ahmad-hr|referral"] = { template: "referral", ar: "مرحبًا", en: "Hi", model: "gpt-4.1-mini", generatedAt: "2026-11-27T10:00:00Z" };
+  state.ai.analyses["slug:noor-ahmad-hr"] = {
+    model: "gpt-4.1-mini", generatedAt: "2026-11-27T10:00:00Z", messageCount: 3, lastMessageAt: "2026-11-20T09:00:00Z", stage: "waiting_them", tone: "neutral",
+    summary_ar: "حكينا عن الشاغر", next_step_ar: "استنى أسبوع", reply_ar: "مرحبًا", reply_en: "Hi",
+  };
+  state.ai.suggestions = { model: "gpt-4.1-mini", generatedAt: "2026-11-27T10:00:00Z", companies: [{ name: "Careem", why: "بيوظفوا", roles: ["Technical Recruiter"] }], people: [{ title: "Engineering Manager", why: "صاحب قرار" }], actions: ["ضيف 5 Recruiters"] };
   return state;
 }
 

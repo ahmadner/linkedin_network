@@ -2,11 +2,12 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { parse, stringify } from "yaml";
 import { DEFAULT_MODEL } from "../ai/openai";
 import { emptyDataset } from "../core/dataset";
+import { STAGES, TONES } from "../core/conversation";
 import { normalizeTags } from "../core/tags";
 import { TEMPLATE_IDS, type TemplateId } from "../core/templates";
 import { asNumber, asRecord, asString, asStringList, defaultProfile, DEFAULT_COMPANY_OVERRIDES, sanitizeOverrides, sanitizeProfile } from "../core/profile";
 import type {
-  AiClassification, AiMessage, AiSuggestions, AiTemplate, Dataset, LogEntry, OutreachMode, Party, Profile, RawConnection, SourceOrigin,
+  AiClassification, AiMessage, AiSuggestions, AiTemplate, ConversationAnalysis, ConversationStage, ConversationTone, Dataset, LogEntry, OutreachMode, Party, Profile, RawConnection, SourceOrigin,
   StoredInvitation, StoredMessage, Tracking,
 } from "../core/types";
 
@@ -19,6 +20,7 @@ export interface AiState {
   classifications: Record<string, AiClassification>;
   templates: Record<string, AiTemplate>;
   suggestions: AiSuggestions | null;
+  analyses: Record<string, ConversationAnalysis>;
 }
 
 export interface AppState {
@@ -37,7 +39,7 @@ export function emptyState(): AppState {
     dataset: emptyDataset(),
     tracking: {},
     log: [],
-    ai: { model: DEFAULT_MODEL, messages: {}, classifications: {}, templates: {}, suggestions: null },
+    ai: { model: DEFAULT_MODEL, messages: {}, classifications: {}, templates: {}, suggestions: null, analyses: {} },
   };
 }
 
@@ -200,6 +202,25 @@ function aiSuggestions(v: unknown): AiSuggestions | null {
   };
 }
 
+function conversationAnalysis(v: unknown): ConversationAnalysis | null {
+  const r = asRecord(v);
+  const stage = asString(r.stage, 40) as ConversationStage;
+  const tone = asString(r.tone, 40) as ConversationTone;
+  if (!STAGES.includes(stage)) return null;
+  return {
+    model: asString(r.model, 100),
+    generatedAt: asString(r.generatedAt, 40),
+    messageCount: asNumber(r.messageCount, 0),
+    lastMessageAt: asString(r.lastMessageAt, 40),
+    stage,
+    tone: TONES.includes(tone) ? tone : "neutral",
+    summary_ar: asString(r.summary_ar, 800),
+    next_step_ar: asString(r.next_step_ar, 400),
+    reply_ar: asString(r.reply_ar, 6000),
+    reply_en: asString(r.reply_en, 6000),
+  };
+}
+
 function aiClassification(v: unknown): AiClassification {
   const r = asRecord(v);
   const out: AiClassification = { model: asString(r.model, 100) };
@@ -311,6 +332,7 @@ function sanitizeState(sections: Sections): AppState {
     classifications: recordOf(ai.classifications, aiClassification),
     templates: recordOf(ai.templates, aiTemplate),
     suggestions: aiSuggestions(ai.suggestions),
+    analyses: recordOf(ai.analyses, conversationAnalysis),
   };
   return state;
 }

@@ -45,11 +45,11 @@ export class Store {
     return () => this.listeners.delete(listener);
   }
 
-  update(mutate: (state: AppState) => void, options: { recompute?: boolean } = {}): void {
+  update(mutate: (state: AppState) => void, options: { recompute?: boolean; emit?: boolean } = {}): void {
     mutate(this.current);
     if (options.recompute !== false) this.cached = null;
     this.persist();
-    this.emit();
+    if (options.emit !== false) this.emit();
   }
 
   replace(next: AppState): void {

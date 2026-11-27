@@ -3,7 +3,8 @@ import { clip } from "../core/messages";
 import { asRecord, asString, asStringList } from "../core/profile";
 import { TEMPLATE_PURPOSE, type TemplateExtra, type TemplateId } from "../core/templates";
 import type { Gap } from "../core/opportunities";
-import type { AiClassification, AiMessage, AiSuggestions, AiTemplate, CompanyRow, Contact, MessageSet, Profile, StoredMessage } from "../core/types";
+import { STAGES, TONES } from "../core/conversation";
+import type { AiClassification, AiMessage, AiSuggestions, AiTemplate, CompanyRow, Contact, ConversationAnalysis, ConversationStage, ConversationTone, MessageSet, Profile, StoredMessage } from "../core/types";
 import { chatJson, type AiConfig } from "./openai";
 
 const MESSAGE_SYSTEM = [
@@ -126,6 +127,44 @@ export async function generateTemplate(contact: Contact, profile: Profile, histo
   const en = clip(asString(raw.en, 8000).trim(), limit);
   if (!ar && !en) throw new Error("The model returned an empty message");
   return { template: id, ar, en, model, generatedAt: new Date().toISOString() };
+}
+
+const ANALYZE_SYSTEM = [
+  "You read a LinkedIn conversation between the user (\"me\") and one contact (\"them\"), oldest message first, and judge where it stands for the user's goal.",
+  `Pick stage from: ${STAGES.join(", ")}. waiting_me means they wrote last and expect an answer; waiting_them means the user wrote last; opportunity means a job, referral, interview or meeting is on the table; gone_cold means no activity for a long time without closure.`,
+  `Pick tone from: ${TONES.join(", ")}, judging how the contact feels about the user.`,
+  "summary_ar: two short sentences in natural Levantine (Jordanian) Arabic on what was discussed and where it stopped. next_step_ar: one concrete next step in the same Arabic.",
+  "reply_ar and reply_en: a short ready-to-send next message that moves things forward, in natural Jordanian Arabic and in English. Use only facts from the conversation and the user's profile; never invent promises, dates or openings.",
+  "Return a JSON object with exactly these keys: stage, tone, summary_ar, next_step_ar, reply_ar, reply_en.",
+].join(" ");
+
+export async function analyzeConversation(contact: Contact, profile: Profile, history: StoredMessage[], cfg: AiConfig, today: string): Promise<ConversationAnalysis> {
+  if (history.length === 0) throw new Error("There is no conversation with this contact");
+  const limit = profile.messaging.message_char_limit;
+  const input = {
+    today,
+    goal: profile.targeting.goal,
+    me: myFacts(profile),
+    them: { first_name: contact.greetingName, role: contact.positionPrimary || contact.positionClean, company: contact.companyClean },
+    conversation: history.slice(-20).map((m) => ({ from: m.outgoing ? "me" : "them", date: m.at.slice(0, 10), text: m.content.slice(0, 600) })),
+  };
+  const { data, model } = await chatJson(cfg, ANALYZE_SYSTEM, JSON.stringify(input));
+  const raw = asRecord(data);
+  const stage = asString(raw.stage, 40) as ConversationStage;
+  const tone = asString(raw.tone, 40) as ConversationTone;
+  const last = history[history.length - 1]!;
+  return {
+    model,
+    generatedAt: new Date().toISOString(),
+    messageCount: history.length,
+    lastMessageAt: last.at,
+    stage: STAGES.includes(stage) ? stage : last.outgoing ? "waiting_them" : "waiting_me",
+    tone: TONES.includes(tone) ? tone : "neutral",
+    summary_ar: asString(raw.summary_ar, 800).trim(),
+    next_step_ar: asString(raw.next_step_ar, 400).trim(),
+    reply_ar: clip(asString(raw.reply_ar, 8000).trim(), limit),
+    reply_en: clip(asString(raw.reply_en, 8000).trim(), limit),
+  };
 }
 
 const SUGGEST_SYSTEM = [

@@ -1,8 +1,10 @@
-import { CLASSIFY_BATCH, classifyBatch, generateMessages, needsClassification } from "../../ai/features";
+import { analyzeConversation, CLASSIFY_BATCH, classifyBatch, generateMessages, needsClassification } from "../../ai/features";
 import { getApiKey, isKeyRemembered, looksLikeKey, setApiKey } from "../../ai/key";
 import { DEFAULT_MODEL, isFatalError, mapLimit, verifyModel, type AiConfig } from "../../ai/openai";
-import { nameKey } from "../../core/text";
-import type { Contact, StoredMessage } from "../../core/types";
+import { awaitingMyReply, isStale } from "../../core/conversation";
+import { conversationIndex } from "../../core/conversations";
+import { todayIso } from "../../core/dates";
+import type { Contact } from "../../core/types";
 import { aiErrorText, card, keepFallbackModel, type Ctx } from "../context";
 import { field, fmtNumber, h } from "../dom";
 
@@ -15,11 +17,6 @@ const MODELS: Array<[string, string]> = [
   ["gpt-5", "ممكن يحتاج توثيق للمنظمة"],
 ];
 let controller: AbortController | null = null;
-
-function historyFor(messages: StoredMessage[], c: Contact): StoredMessage[] {
-  const key = nameKey(c.fullName);
-  return messages.filter((m) => [m.from, ...m.to].some((p) => (c.slug && p.slug === c.slug) || (!p.slug && key && nameKey(p.name) === key)));
-}
 
 async function runBatch<T>(ctx: Ctx, label: string, items: T[], work: (item: T, cfg: AiConfig) => Promise<void>, concurrency: number, key: string): Promise<void> {
   controller = new AbortController();
@@ -82,6 +79,18 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
   const contacts = hasData ? ctx.store.analysis.contacts : [];
   const unknown = contacts.filter((c) => needsClassification(c, state.ai.classifications));
   const priority = contacts.filter((c) => c.bucket === "A" && !c.ai);
+  const index = conversationIndex(state.dataset.messages);
+  const pending: Array<{ c: Contact; waiting: boolean }> = [];
+  for (const c of contacts) {
+    const history = index.of(c);
+    if (history.length === 0) continue;
+    const done = state.ai.analyses[c.id];
+    if (done && !isStale(done, history)) continue;
+    pending.push({ c, waiting: awaitingMyReply(history) });
+  }
+  pending.sort((a, b) => Number(b.waiting) - Number(a.waiting) || b.c.score - a.c.score);
+  const needsAnalysis = pending.map((p) => p.c);
+  const waitingOnMe = pending.filter((p) => p.waiting).map((p) => p.c);
 
   const requireKey = (): string => {
     const key = getApiKey();
@@ -96,8 +105,9 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
     for (let i = 0; i < unknown.length; i += CLASSIFY_BATCH) batches.push(unknown.slice(i, i + CLASSIFY_BATCH));
     await runBatch(ctx, "تصنيف الأشخاص المجهولين…", batches, async (batch, cfg) => {
       const result = await classifyBatch(batch, cfg);
-      ctx.store.update((s) => Object.assign(s.ai.classifications, result));
+      ctx.store.update((s) => Object.assign(s.ai.classifications, result), { emit: false });
     }, 2, key);
+    ctx.store.update(() => undefined);
     rerender();
   };
 
@@ -105,11 +115,24 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
     const key = requireKey();
     if (!key || priority.length === 0) return;
     if (!window.confirm(`رح نبعت ${priority.length} طلب لـ OpenAI على حسابك. نكمل؟`)) return;
-    const messages = state.dataset.messages;
     await runBatch(ctx, "كتابة رسائل لأولوية A…", priority, async (c, cfg) => {
-      const result = await generateMessages(c, state.profile, historyFor(messages, c), cfg);
-      ctx.store.update((s) => (s.ai.messages[c.id] = result));
+      const result = await generateMessages(c, state.profile, index.of(c), cfg);
+      ctx.store.update((s) => (s.ai.messages[c.id] = result), { emit: false });
     }, 3, key);
+    ctx.store.update(() => undefined);
+    rerender();
+  };
+
+  const analyzeAll = async (list: Contact[]): Promise<void> => {
+    const key = requireKey();
+    if (!key || list.length === 0) return;
+    if (!window.confirm(`رح نبعت ${fmtNumber(list.length)} محادثة لـ OpenAI على حسابك. نكمل؟`)) return;
+    const today = todayIso();
+    await runBatch(ctx, "تحليل المحادثات…", list, async (c, cfg) => {
+      const result = await analyzeConversation(c, state.profile, index.of(c), cfg, today);
+      ctx.store.update((s) => (s.ai.analyses[c.id] = result), { recompute: false, emit: false });
+    }, 3, key);
+    ctx.store.update(() => undefined, { recompute: false });
     rerender();
   };
 
@@ -120,6 +143,7 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
       s.ai.classifications = {};
       s.ai.templates = {};
       s.ai.suggestions = null;
+      s.ai.analyses = {};
     });
   };
 
@@ -145,6 +169,13 @@ export function renderAi(ctx: Ctx, rerender: () => void): HTMLElement {
       h("div", { class: "action" },
         h("div", {}, h("strong", {}, "رسائل مخصصة لأولوية A"), h("p", { class: "muted" }, `${fmtNumber(priority.length)} شخص بأولوية A ما إلهم رسائل AI. لأي شخص ثاني افتحه من جهات الاتصال واضغط "اكتب بـ AI".`)),
         h("button", { type: "button", disabled: !hasData || priority.length === 0, onclick: () => void writeAll() }, "اكتب الرسائل"),
+      ),
+      h("div", { class: "action" },
+        h("div", {}, h("strong", {}, "تحليل المحادثات"), h("p", { class: "muted" }, `${fmtNumber(needsAnalysis.length)} محادثة جديدة أو فيها رسائل بعد آخر تحليل، منهم ${fmtNumber(waitingOnMe.length)} بانتظار ردك. التحليل بيحكيلك وين وقفتوا وشو الخطوة الجاية وبيقترح رد.`)),
+        h("div", { class: "row tight" },
+          h("button", { type: "button", disabled: waitingOnMe.length === 0, onclick: () => void analyzeAll(waitingOnMe) }, "الي بانتظار ردي"),
+          h("button", { type: "button", class: "secondary", disabled: needsAnalysis.length === 0, onclick: () => void analyzeAll(needsAnalysis) }, "كلهم"),
+        ),
       ),
       h("div", { class: "row" },
         h("button", { type: "button", class: "danger", onclick: clearAi }, "مسح نتائج AI"),
