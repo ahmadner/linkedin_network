@@ -544,7 +544,7 @@ details[open] > summary { margin-block-end: .5rem; }
 .gallery li.picked { border-color: var(--accent); }
 .gallery-pick { padding: 0; border: 0; background: none; }
 .gallery-pick:hover:not(:disabled) { background: none; }
-.gallery .thumb { inline-size: 72px; block-size: 72px; }
+.gallery .thumb { inline-size: 104px; block-size: 104px; object-fit: cover; }
 .chip.add { cursor: pointer; color: var(--accent); }
 .chip.add:hover:not(:disabled) { background: var(--accent-soft); }
 .preview-host { display: grid; justify-items: center; }
@@ -586,3 +586,17 @@ details[open] > summary { margin-block-end: .5rem; }
   .plan-item { flex-wrap: wrap; }
   .hook-list li { flex-wrap: wrap; }
 }
+
+.badge.series { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.style-presets { flex-wrap: wrap; overflow: visible; }
+.date-pick { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.date-pick input { flex: 1 1 9rem; min-inline-size: 0; }
+.autopilot { border-color: var(--accent); background: linear-gradient(135deg, var(--accent-soft), var(--surface) 60%); }
+.autopilot .toolbar > input { flex: 1 1 16rem; }
+.series-plan { margin-block-start: 1rem; padding-block-start: 1rem; border-block-start: 1px solid var(--border); display: grid; gap: .5rem; }
+.series-plan h3 { margin: 0; font-size: 1.1rem; }
+.series-plan p { margin: 0; }
+.series-parts { margin: .25rem 0 .5rem; padding-inline-start: 1.4rem; display: grid; gap: .55rem; }
+.series-parts li > p { margin: .2rem 0 0; }
+.series-part { display: grid; gap: .3rem; inline-size: 100%; text-align: start; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .55rem .7rem; }
+.series-part:hover { border-color: var(--accent); background: var(--surface-2); }

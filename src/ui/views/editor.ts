@@ -1,12 +1,16 @@
-import { carouselOutline, generateImage, IMAGE_SIZE_LABEL, IMAGE_STYLES, imagePromptFor, LENGTH_LABEL, replaceHook, reviewPost, rewritePost, suggestHooks, TONE_LABEL, writePost, defaultLength, type ImageSize, type Length, type PostReview, type RewriteAction, type Tone } from "../../ai/content";
 import {
-  DRAFT_STATUSES, FORMAT_LABEL, foldPreview, IMAGE_MODELS, LANG_LABEL, newDraft, newId, normalizeHashtag, POST_FORMATS, MAX_VERSIONS, POST_LIMIT, postChecks, publishText, readingSeconds, restoreDraftVersion, shareUrl, STATUS_LABEL, withVersion,
-  type ContentLang, type Draft, type ImageMeta, type Post, type Slide,
+  carouselOutline, defaultLength, IMAGE_ASPECT_LABEL, IMAGE_MODEL_LABEL, IMAGE_QUALITY_LABEL, IMAGE_STYLES, imageCostHint, LENGTH_LABEL, replaceHook, reviewPost, rewritePost, suggestHooks, TONE_LABEL,
+  type Length, type PostReview, type RewriteAction, type Tone,
+} from "../../ai/content";
+import {
+  DRAFT_STATUSES, FORMAT_LABEL, foldPreview, IMAGE_ASPECTS, IMAGE_MODELS, IMAGE_QUALITIES, LANG_LABEL, MAX_IMAGE_COUNT, newDraft, newId, normalizeHashtag, POST_FORMATS, MAX_VERSIONS, POST_LIMIT, postChecks, publishText, readingSeconds, restoreDraftVersion, shareUrl, STATUS_LABEL, withVersion,
+  type ContentLang, type ContentSettings, type Draft, type ImageAspect, type ImageQuality, type Post, type Slide,
 } from "../../core/content";
-import { base64Blob, imageBlob, imageExtension, imageUrl, prepareImage, removeImage, storeImage } from "../../io/images";
+import { imageBlob, imageExtension, imageUrl, removeImage } from "../../io/images";
 import type { AiConfig } from "../../ai/openai";
 import { barFill } from "../charts";
 import { badge, runAi, type Ctx } from "../context";
+import { addDraft, designImage, findDraft, nextDates, saveImages, scheduleDraft, seriesLabel, updateDraft, writeDraft } from "../drafts";
 import { copyText, download, field, fmtNumber, h, pickFiles, replace, select, textArea, textInput } from "../dom";
 import { icon } from "../icons";
 import { slidesPdf, slidesZip } from "../slides";
@@ -22,36 +26,18 @@ interface EditorUi {
   tone: Tone;
   length: Length | "";
   details: string;
-  style: string;
-  size: ImageSize;
+  headline: string;
   publishUrl: string;
 }
 
 const ui: EditorUi = freshUi("");
 
 function freshUi(draftId: string): EditorUi {
-  return { draftId, expanded: false, mobile: true, hooks: [], review: null, note: "", tags: [], tone: "professional", length: "", details: "", style: IMAGE_STYLES[0]![0], size: "square", publishUrl: "" };
-}
-
-export function findDraft(ctx: Ctx, id: string): Draft | undefined {
-  return ctx.store.state.content.drafts.find((d) => d.id === id);
-}
-
-export function updateDraft(ctx: Ctx, id: string, fn: (d: Draft) => Draft, emit = true): void {
-  ctx.store.update((s) => {
-    s.content.drafts = s.content.drafts.map((d) => (d.id === id ? { ...fn(d), updatedAt: new Date().toISOString() } : d));
-  }, { recompute: false, emit });
+  return { draftId, expanded: false, mobile: true, hooks: [], review: null, note: "", tags: [], tone: "professional", length: "", details: "", headline: "", publishUrl: "" };
 }
 
 function patch(ctx: Ctx, id: string, changes: Partial<Draft>, emit = true): void {
   updateDraft(ctx, id, (d) => ({ ...d, ...changes }), emit);
-}
-
-export function addDraft(ctx: Ctx, draft: Draft): Draft {
-  ctx.store.update((s) => {
-    s.content.drafts = [draft, ...s.content.drafts];
-  }, { recompute: false, emit: false });
-  return draft;
 }
 
 export async function deleteDraft(ctx: Ctx, id: string): Promise<void> {
@@ -182,18 +168,14 @@ function writeBox(ctx: Ctx, d: Draft): HTMLElement {
   const details = textArea(ui.details, (v) => (ui.details = v), { rows: 3, placeholder: "تفاصيل حقيقية بدك تنذكر: أرقام، قصة، أداة، نتيجة… (الذكاء الاصطناعي ما رح يخترع إشي)" });
   const length = ui.length || defaultLength(d.format);
   const go = async (): Promise<void> => {
-    const s = ctx.store.state;
-    const brief = { topic: topic.value.trim() || d.title, hook: d.status === "idea" ? d.text : "", pillar: d.pillar, format: d.format, lang: d.lang, tone: ui.tone, length, details: details.value.trim() };
-    if (!brief.topic && !brief.details && !d.text.trim()) return ctx.toast("اكتب عن شو المنشور أول.", "error");
-    if (!brief.topic) brief.topic = d.text.slice(0, 300);
+    const subject = topic.value.trim() || d.title;
+    if (!subject && !details.value.trim() && !d.text.trim()) return ctx.toast("اكتب عن شو المنشور أول.", "error");
     ui.details = details.value;
-    await applyAi(ctx, d, "كتابة المنشور…", "ai-write", async (cfg) => {
-      const w = await writePost(brief, s.profile, s.content.posts, s.content.strategy, s.content.settings, cfg);
-      const changes: Partial<Draft> = { title: d.title || w.title, imagePrompt: d.imagePrompt || w.imagePrompt, status: d.status === "idea" ? "draft" : d.status };
-      if (d.format === "carousel" && w.slides.length > 0) changes.slides = w.slides;
-      if (d.format === "poll" && w.pollQuestion) Object.assign(changes, { pollQuestion: w.pollQuestion, pollOptions: w.pollOptions });
-      return { text: w.text, hashtags: w.hashtags, changes, note: d.text.trim() ? "انكتب المنشور من جديد." : "" };
-    });
+    const rewriting = Boolean(d.text.trim()) && d.status !== "idea";
+    const result = await runAi(ctx, "كتابة المنشور…", (cfg) => writeDraft(ctx, cfg, d.id, { topic: subject, details: details.value, tone: ui.tone, length }));
+    if (!result) return;
+    Object.assign(ui, { note: rewriting ? "انكتب المنشور من جديد." : "", hooks: [], review: null, tags: [] });
+    ctx.store.emit();
   };
   return h("div", { class: "write-box" },
     h("h3", { class: "with-icon" }, icon("spark"), "اكتب بالذكاء الاصطناعي"),
@@ -361,44 +343,31 @@ function pollEditor(ctx: Ctx, d: Draft): HTMLElement {
   );
 }
 
-async function saveImage(ctx: Ctx, d: Draft, blob: Blob, meta: Omit<ImageMeta, "id" | "draftId" | "createdAt" | "width" | "height">): Promise<void> {
-  const prepared = await prepareImage(blob);
-  const id = newId("img");
-  await storeImage(id, prepared.blob);
-  ctx.store.update((s) => {
-    s.content.images[id] = { ...meta, id, draftId: d.id, createdAt: new Date().toISOString(), width: prepared.width, height: prepared.height };
-    s.content.drafts = s.content.drafts.map((x) => (x.id === d.id ? { ...x, imageId: id, format: x.format === "text" ? "image" : x.format, updatedAt: new Date().toISOString() } : x));
-  }, { recompute: false });
+function setImageSetting<K extends keyof ContentSettings>(ctx: Ctx, key: K, value: ContentSettings[K], emit = true): void {
+  ctx.store.update((s) => (s.content.settings[key] = value), { recompute: false, emit });
 }
 
 function imageEditor(ctx: Ctx, d: Draft): HTMLElement {
   const settings = ctx.store.state.content.settings;
-  const prompt = textArea(d.imagePrompt, (v) => patch(ctx, d.id, { imagePrompt: v }, false), { rows: 3, dir: "auto", placeholder: "وصف الصورة (بالإنجليزي أفضل). مثال: a calm developer desk at sunrise with abstract data streams" });
-  const suggest = async (): Promise<void> => {
-    if (!d.text.trim()) return ctx.toast("اكتب نص المنشور أول.", "error");
-    const result = await runAi(ctx, "كتابة وصف للصورة…", (cfg) => imagePromptFor(d.text, ui.style, cfg));
-    if (result) patch(ctx, d.id, { imagePrompt: result });
-  };
-  const generate = async (): Promise<void> => {
-    const text = prompt.value.trim();
-    if (!text) return ctx.toast("اكتب وصف للصورة أو اضغط \"اقترح وصف\".", "error");
-    patch(ctx, d.id, { imagePrompt: text }, false);
-    const full = `${text}\nStyle: ${ui.style}. No text, letters or logos. Professional, suitable for a LinkedIn post.`;
-    const result = await runAi(ctx, "توليد الصورة… ممكن تاخذ دقيقة", async (cfg) => {
-      const image = await generateImage(cfg, settings.imageModel, full, ui.size);
-      await saveImage(ctx, d, base64Blob(image.b64, image.type), { prompt: text, model: image.model, source: "ai" });
-      return image.model;
-    });
+  const prompt = textArea(d.imagePrompt, (v) => patch(ctx, d.id, { imagePrompt: v }, false), { rows: 5, dir: "ltr", placeholder: "Describe the image in English: subject, composition, light, colors, mood…" });
+  const overlay = textInput(d.imageText, (v) => patch(ctx, d.id, { imageText: v.slice(0, 120) }, false), { maxlength: 120, dir: "auto", placeholder: "اتركه فاضي لصورة بدون كتابة" });
+  const run = async (fromPrompt: boolean): Promise<void> => {
+    if (!d.text.trim() && !d.title.trim()) return ctx.toast("اكتب نص المنشور أول، عشان الصورة تطلع عنه.", "error");
+    const custom = prompt.value.trim();
+    if (fromPrompt && !custom) return ctx.toast("اكتب وصف للصورة أول.", "error");
+    patch(ctx, d.id, { imagePrompt: custom, imageText: overlay.value.trim().slice(0, 120) }, false);
+    const result = await runAi(ctx, "تصميم الصورة بالذكاء الاصطناعي…", (cfg, progress) => designImage(ctx, cfg, d.id, { prompt: fromPrompt ? custom : "" }, progress));
     if (!result) return;
-    if (result !== settings.imageModel) {
-      ctx.store.update((s) => (s.content.settings.imageModel = result), { recompute: false });
-      ctx.toast(`حسابك ما بيقدر يستخدم ${settings.imageModel}، فاستعملت ${result}.`);
-    } else ctx.toast("الصورة جاهزة");
+    ui.headline = result.headline;
+    ctx.store.emit();
+    if (result.model !== result.wanted) ctx.toast(`حسابك ما بيقدر يستخدم ${result.wanted} (ممكن بدّه توثيق للمنظمة)، فاستعملت ${result.model}.`);
+    else ctx.toast(result.ids.length > 1 ? `جهزت ${fmtNumber(result.ids.length)} نسخ. اختار اللي بتعجبك من تحت.` : "الصورة جاهزة");
   };
   const upload = async (): Promise<void> => {
     const [file] = await pickFiles("image/png,image/jpeg,image/webp,image/gif");
     if (!file) return;
-    await ctx.busy("تجهيز الصورة…", () => saveImage(ctx, d, file, { prompt: "", model: "", source: "upload" }));
+    await ctx.busy("تجهيز الصورة…", () => saveImages(ctx, d.id, [file], { prompt: "", model: "", source: "upload" }));
+    ctx.store.emit();
   };
   const save = async (id: string): Promise<void> => {
     const blob = await imageBlob(id);
@@ -413,8 +382,14 @@ function imageEditor(ctx: Ctx, d: Draft): HTMLElement {
     }, { recompute: false });
   };
   const gallery = Object.values(ctx.store.state.content.images).filter((img) => img.draftId === d.id || img.id === d.imageId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const sizes = h("div", { class: "segmented", role: "group", "aria-label": "شكل الصورة" }, (Object.entries(IMAGE_SIZE_LABEL) as Array<[ImageSize, string]>).map(([k, label]) =>
-    h("button", { type: "button", "aria-pressed": String(ui.size === k), onclick: () => { ui.size = k; ctx.store.emit(); } }, label)));
+  const styles = h("div", { class: "presets style-presets", role: "group", "aria-label": "ستايل الصورة" }, Object.entries(IMAGE_STYLES).map(([key, st]) =>
+    h("button", { type: "button", "aria-pressed": String(settings.imageStyle === key), onclick: () => setImageSetting(ctx, "imageStyle", key) }, st.label)));
+  const aspects = h("div", { class: "presets style-presets", role: "group", "aria-label": "شكل الصورة" }, IMAGE_ASPECTS.map((k) =>
+    h("button", { type: "button", "aria-pressed": String(settings.imageAspect === k), onclick: () => setImageSetting(ctx, "imageAspect", k as ImageAspect) }, IMAGE_ASPECT_LABEL[k])));
+  const counts = select(Array.from({ length: MAX_IMAGE_COUNT }, (_, i): [string, string] => [String(i + 1), i === 0 ? "نسخة وحدة" : `${i + 1} نسخ`]), String(settings.imageCount), (v) => setImageSetting(ctx, "imageCount", Number(v)));
+  const quality = select(IMAGE_QUALITIES.map((q): [string, string] => [q, IMAGE_QUALITY_LABEL[q]]), settings.imageQuality, (v) => setImageSetting(ctx, "imageQuality", v as ImageQuality));
+  const model = select(IMAGE_MODELS.map((m): [string, string] => [m, IMAGE_MODEL_LABEL[m] ?? m]), settings.imageModel, (v) => setImageSetting(ctx, "imageModel", v, false));
+  const cost = imageCostHint(settings.imageModel, settings.imageQuality, settings.imageCount);
   return h("div", { class: "panel-section" },
     h("h3", { class: "with-icon" }, icon("image"), "صورة المنشور"),
     d.imageId ? h("figure", { class: "current-image" },
@@ -424,22 +399,25 @@ function imageEditor(ctx: Ctx, d: Draft): HTMLElement {
         h("button", { type: "button", class: "link", onclick: () => patch(ctx, d.id, { imageId: "" }) }, "شيلها من المنشور"),
       ),
     ) : null,
-    field("الوصف", prompt),
-    h("div", { class: "form-grid narrow" },
-      field("الستايل", select(IMAGE_STYLES, ui.style, (v) => (ui.style = v))),
-      field("الموديل", select(IMAGE_MODELS.map((m): [string, string] => [m, m]), settings.imageModel, (v) => ctx.store.update((s) => (s.content.settings.imageModel = v), { recompute: false, emit: false }))),
-    ),
-    sizes,
-    h("div", { class: "row" },
-      h("button", { type: "button", onclick: () => void generate() }, icon("spark"), d.imageId ? "ولّد صورة ثانية" : "ولّد الصورة"),
-      h("button", { type: "button", class: "secondary", onclick: () => void suggest() }, "اقترح وصف من المنشور"),
-      h("button", { type: "button", class: "secondary", onclick: () => void upload() }, "ارفع صورة"),
-    ),
-    h("p", { class: "hint" }, "كل صورة بتكلف من رصيد OpenAI (تقريبًا 0.04$ لصورة متوسطة الجودة). الصور بتنضغط وبتنحفظ بمتصفحك وبملف الحفظ."),
-    gallery.length > 1 ? h("div", {}, h("h3", {}, "كل صور هالمنشور"), h("ul", { class: "gallery" }, gallery.map((img) => h("li", { class: img.id === d.imageId ? "picked" : "" },
-      h("button", { type: "button", class: "gallery-pick", "aria-label": "استعمل هاي الصورة", onclick: () => patch(ctx, d.id, { imageId: img.id }) }, imageThumb(img.id, "thumb")),
+    gallery.length > 1 ? h("div", {}, h("h3", {}, `اختار النسخة (${fmtNumber(gallery.length)})`), h("ul", { class: "gallery" }, gallery.map((img) => h("li", { class: img.id === d.imageId ? "picked" : "" },
+      h("button", { type: "button", class: "gallery-pick", "aria-label": "استعمل هاي الصورة", "aria-pressed": String(img.id === d.imageId), onclick: () => patch(ctx, d.id, { imageId: img.id }) }, imageThumb(img.id, "thumb")),
       h("button", { type: "button", class: "icon-btn", "aria-label": "احذف الصورة", onclick: () => void discard(img.id) }, icon("trash")),
     )))) : null,
+    h("div", { class: "field" }, h("span", { class: "field-label" }, "الستايل"), styles),
+    h("div", { class: "field" }, h("span", { class: "field-label" }, "المقاس"), aspects),
+    field("كتابة على الصورة (اختياري)", overlay, "الذكاء الاصطناعي بيكتبها بالضبط. الإنجليزي بيطلع أدق من العربي."),
+    ui.headline && ui.headline !== d.imageText ? h("div", { class: "chips" }, h("span", { class: "muted small" }, "اقتراح:"), h("button", { type: "button", class: "chip add", dir: "auto", onclick: () => patch(ctx, d.id, { imageText: ui.headline }) }, "+ ", ui.headline)) : null,
+    h("div", { class: "form-grid narrow" }, field("عدد النسخ", counts), field("الجودة", quality), field("الموديل", model)),
+    h("div", { class: "row" },
+      h("button", { type: "button", onclick: () => void run(false) }, icon("spark"), d.imageId ? "صمّم صورة جديدة" : "صمّم الصورة بالذكاء الاصطناعي"),
+      h("button", { type: "button", class: "secondary", onclick: () => void upload() }, "ارفع صورة"),
+    ),
+    h("details", { class: "write-more" },
+      h("summary", {}, "وصف الصورة (متقدم)"),
+      field("الوصف اللي انرسمت فيه آخر صورة. عدّله وولّد من جديد.", prompt),
+      h("button", { type: "button", class: "secondary small", onclick: () => void run(true) }, "ولّد من هالوصف"),
+    ),
+    h("p", { class: "hint" }, `الذكاء الاصطناعي بيقرأ المنشور وبيكتب توجيه فني مفصّل، وبعدين بيرسم. التكلفة تقريبًا ${cost}$ من رصيد OpenAI. الصور بتنحفظ بمتصفحك وبملف الحفظ.`),
   );
 }
 
@@ -553,6 +531,7 @@ export function renderEditor(ctx: Ctx, id: string, close: () => void, open: (id:
   return h("div", { class: "view editor" },
     h("div", { class: "editor-bar" },
       h("button", { type: "button", class: "secondary small", onclick: close }, icon("back"), "رجوع للوحة"),
+      d.seriesId && seriesLabel(ctx, d) ? badge(`سلسلة: ${seriesLabel(ctx, d)}`, "series") : null,
       h("input", { type: "text", class: "title-input", value: d.title, placeholder: "عنوان داخلي للمسودة", "aria-label": "عنوان المسودة", dir: "auto", onchange: (e: Event) => patch(ctx, id, { title: (e.target as HTMLInputElement).value }) }),
       h("div", { class: "row tight" },
         h("button", { type: "button", class: "secondary small", onclick: duplicate }, icon("copy"), "نسخة"),
@@ -567,10 +546,19 @@ export function renderEditor(ctx: Ctx, id: string, close: () => void, open: (id:
             field("النوع", select(POST_FORMATS.map((f): [string, string] => [f, FORMAT_LABEL[f]]), d.format, (v) => patch(ctx, id, { format: v as Draft["format"] }))),
             field("المحور", h("input", { type: "text", list: "pillar-list", value: d.pillar, placeholder: "مثال: خبرات تقنية", onchange: (e: Event) => patch(ctx, id, { pillar: (e.target as HTMLInputElement).value.trim() }) })),
             field("الحالة", select(DRAFT_STATUSES.map((st): [string, string] => [st, STATUS_LABEL[st]]), d.status, (v) => patch(ctx, id, { status: v as Draft["status"] }))),
-            field("موعد النشر", h("input", { type: "date", value: d.scheduledFor, onchange: (e: Event) => {
-              const value = (e.target as HTMLInputElement).value;
-              patch(ctx, id, { scheduledFor: value, status: value && (d.status === "ready" || d.status === "draft") && d.text.trim() ? "scheduled" : d.status });
-            } })),
+            field("موعد النشر", h("div", { class: "date-pick" },
+              h("input", { type: "date", value: d.scheduledFor, "aria-label": "موعد النشر", onchange: (e: Event) => {
+                const value = (e.target as HTMLInputElement).value;
+                patch(ctx, id, { scheduledFor: value, status: value && (d.status === "ready" || d.status === "draft") && d.text.trim() ? "scheduled" : d.status });
+              } }),
+              d.status !== "published" ? h("button", { type: "button", class: "link", onclick: () => {
+                const [date] = nextDates(ctx, 1);
+                if (!date) return ctx.toast("ما لقيت يوم فاضي.", "error");
+                scheduleDraft(ctx, id, date);
+                ctx.store.emit();
+                ctx.toast(`انجدول ${date}`);
+              } }, "أقرب يوم مناسب") : null,
+            )),
           ),
           datalist,
           area,

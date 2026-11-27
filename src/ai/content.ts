@@ -1,25 +1,57 @@
-import { contentStats, hashtagsOf, normalizeHashtag, POST_LIMIT, sanitizeIdea, sanitizeStrategy, WEEKDAYS_AR, type ContentIdea, type ContentLang, type ContentSettings, type ContentStrategy, type Post, type PostFormat } from "../core/content";
+import {
+  contentStats, hashtagsOf, MAX_IMAGE_COUNT, MAX_SERIES_PARTS, normalizeHashtag, POST_LIMIT, sanitizeIdea, sanitizeSeriesPart, sanitizeStrategy, WEEKDAYS_AR,
+  type ContentIdea, type ContentLang, type ContentSeries, type ContentSettings, type ContentStrategy, type ImageAspect, type ImageQuality, type Post, type PostFormat, type SeriesPart,
+} from "../core/content";
 import { asNumber, asRecord, asString, asStringList } from "../core/profile";
 import type { Profile } from "../core/types";
 import { myFacts, NAME_RULE } from "./features";
-import { chatJson, isModelAccessError, postJson, type AiConfig } from "./openai";
+import { chatJson, isModelAccessError, OpenAiError, postJson, type AiConfig } from "./openai";
 
 export type Tone = "professional" | "friendly" | "story" | "bold" | "educational" | "humble";
 export type Length = "short" | "medium" | "long";
 export type RewriteAction = "improve" | "shorten" | "lengthen" | "tone" | "translate" | "cta" | "proofread" | "emoji" | "format" | "repurpose";
-export type ImageSize = "square" | "landscape" | "portrait";
 
 export const TONE_LABEL: Record<Tone, string> = { professional: "مهني", friendly: "ودّي", story: "قصة", bold: "جريء", educational: "تعليمي", humble: "متواضع" };
 export const LENGTH_LABEL: Record<Length, string> = { short: "قصير", medium: "متوسط", long: "طويل" };
-export const IMAGE_SIZE_LABEL: Record<ImageSize, string> = { square: "مربع 1:1", landscape: "عرضي", portrait: "طولي" };
-export const IMAGE_STYLES: Array<[string, string]> = [
-  ["clean modern flat illustration, soft gradients", "رسم مسطح حديث"],
-  ["professional editorial photograph, natural light, shallow depth of field", "صورة فوتوغرافية"],
-  ["minimal 3D render, soft studio lighting, pastel colors", "ثلاثي الأبعاد"],
-  ["isometric technical illustration, clean lines", "إيزومتري تقني"],
-  ["bold abstract geometric shapes, high contrast", "تجريدي جريء"],
-  ["hand-drawn sketch style, warm paper texture", "رسم يدوي"],
-];
+export const IMAGE_ASPECT_LABEL: Record<ImageAspect, string> = { portrait: "طولي 4:5 (الأفضل للموبايل)", square: "مربع 1:1", landscape: "عرضي 1.91:1" };
+export const IMAGE_QUALITY_LABEL: Record<ImageQuality, string> = { low: "سريعة ورخيصة", medium: "متوازنة", high: "أعلى دقة" };
+
+export interface ImageStyle {
+  label: string;
+  direction: string;
+}
+
+export const IMAGE_STYLES: Record<string, ImageStyle> = {
+  editorial: { label: "صورة مهنية", direction: "premium editorial photograph, real-world setting, natural window light, 35mm lens, shallow depth of field, authentic and candid, subtle color grading" },
+  minimal: { label: "بسيط ونظيف", direction: "minimalist composition, one strong focal subject, generous negative space, soft neutral background, refined muted palette, calm and premium" },
+  infographic: { label: "إنفوغرافيك", direction: "clean modern infographic layout, clear visual hierarchy, simple icons and shapes, aligned grid, flat vector style, crisp edges, high legibility" },
+  illustration: { label: "رسم حديث", direction: "modern flat vector illustration, friendly characters without real identities, soft gradients, bold simple shapes, contemporary tech-startup style" },
+  render3d: { label: "ثلاثي الأبعاد", direction: "polished 3D render, soft studio lighting, smooth matte materials, gentle shadows, clay-like modern look, isometric camera" },
+  conceptual: { label: "مفهوم ذكي", direction: "clever conceptual visual metaphor that tells the idea at a glance, surreal but clean, single striking object, studio backdrop, high-end ad campaign look" },
+  tech: { label: "تقني", direction: "sleek technical visualization, abstract architecture diagrams and data flows, glowing lines on a dark background, precise geometry, futuristic but professional" },
+  brand: { label: "ألوان البراند", direction: "bold graphic poster design, strong geometric layout, flat color blocks using only the brand palette, modern Swiss design influence" },
+};
+
+export const DEFAULT_IMAGE_STYLE = "editorial";
+
+export const IMAGE_MODEL_LABEL: Record<string, string> = {
+  "gpt-image-2": "GPT Image 2 (الأفضل بشكل عام)",
+  "gpt-image-2.5-sunburst": "GPT Image 2.5 Sunburst (أدق تفاصيل، أبطأ)",
+  "gpt-image-2.5-flare": "GPT Image 2.5 Flare (أسرع)",
+  "gpt-image-1.5": "GPT Image 1.5",
+  "gpt-image-1-mini": "GPT Image 1 mini (أرخص)",
+};
+
+const QUALITY_COST: Record<ImageQuality, number> = { low: 0.015, medium: 0.05, high: 0.17 };
+
+export function imageCostHint(model: string, quality: ImageQuality, count: number): number {
+  const factor = model.includes("mini") ? 0.3 : model.includes("sunburst") ? 1.4 : 1;
+  return Math.round(QUALITY_COST[quality] * factor * Math.max(1, count) * 100) / 100;
+}
+
+export function imageStyle(key: string): ImageStyle {
+  return IMAGE_STYLES[key] ?? IMAGE_STYLES[DEFAULT_IMAGE_STYLE]!;
+}
 
 const LENGTH_CHARS: Record<Length, string> = { short: "400 to 700 characters", medium: "800 to 1300 characters", long: "1400 to 2200 characters" };
 const LENGTH_FOR_FORMAT: Record<PostFormat, Length> = { text: "medium", image: "short", carousel: "short", poll: "short", video: "short", article: "long" };
@@ -123,6 +155,7 @@ const IDEAS_SYSTEM = [
   "You are a LinkedIn content strategist. Suggest fresh post ideas for the user in the input.",
   "Ideas must fit their pillars, goals and audience, must not repeat the topics of their recent posts or the existing ideas, and must be specific (not generic advice).",
   "Mix formats and the languages their audience needs. If a focus is given, all ideas must serve it.",
+  "If recent_posts is empty, the user is starting from scratch: build the ideas from their profile (role, skills, experience, projects, education, goals and target audience). Include a short introduction post, posts that show their expertise with concrete examples, lessons learned, a story from their path and a clear opinion on their field. Order the ideas so the first ones are the easiest strong first posts.",
   "Write title and why in natural Jordanian-flavored Arabic. Write hook (the actual first line of the post) in the idea's lang.",
   FACTS_RULE,
   "Return a JSON object with key ideas: an array of objects with title, hook, pillar, format (text, image, carousel, poll, video or article), lang (ar or en), why.",
@@ -153,13 +186,24 @@ export interface PostBrief {
   tone: Tone;
   length: Length;
   details: string;
+  series?: SeriesContext;
+}
+
+export interface SeriesContext {
+  name: string;
+  theme: string;
+  arc: string;
+  index: number;
+  total: number;
+  angle: string;
+  previous: Array<{ title: string; text: string }>;
+  next: string;
 }
 
 export interface WrittenPost {
   title: string;
   text: string;
   hashtags: string[];
-  imagePrompt: string;
   slides: Array<{ title: string; body: string }>;
   pollQuestion: string;
   pollOptions: string[];
@@ -172,8 +216,9 @@ const WRITE_SYSTEM = [
   STYLE_RULE,
   FACTS_RULE,
   "Learn the user's voice from their recent posts when given, but make this post better than them.",
+  "If brief.series is given, this post is one part of a connected series: say naturally which part it is (for example 'الجزء 2 من سلسلة …' or 'Part 2 of …'), follow this part's angle, build on the previous parts without repeating them (a short callback is fine), stay consistent with the series theme and arc, and when a next part exists end with a short teaser for it.",
   "Respect the format: text = a strong standalone post; image = a shorter post that works with one image; carousel = a short post that introduces a document carousel plus 6 to 9 slides; poll = a short post plus a poll question and 2 to 4 options of at most 30 characters; video = a short post that introduces a video; article = a longer, structured post with a clear title.",
-  "Return a JSON object with keys: title (short internal title in Arabic), text (the post, without hashtags), hashtags (3 to 5), image_prompt (an English prompt for an image that fits the post: concrete scene or concept, style, colors, no text, no logos, no real people), slides (array of objects with title and body, only for carousel, otherwise empty), poll_question and poll_options (only for poll, otherwise empty).",
+  "Return a JSON object with keys: title (short internal title in Arabic), text (the post, without hashtags), hashtags (3 to 5), slides (array of objects with title and body, only for carousel, otherwise empty), poll_question and poll_options (only for poll, otherwise empty).",
 ].join(" ");
 
 function written(data: unknown): WrittenPost {
@@ -184,7 +229,6 @@ function written(data: unknown): WrittenPost {
     title: asString(raw.title, 200).trim(),
     text,
     hashtags: cleanTags(raw.hashtags, text),
-    imagePrompt: asString(raw.image_prompt, 2000).trim(),
     slides: slidesOf(raw.slides),
     pollQuestion: asString(raw.poll_question, 140).trim(),
     pollOptions: asStringList(raw.poll_options, 4).map((o) => o.slice(0, 30)),
@@ -212,6 +256,15 @@ export async function writePost(brief: PostBrief, profile: Profile, posts: Post[
       tone: brief.tone,
       length: LENGTH_CHARS[brief.length],
       details_from_user: brief.details,
+      series: brief.series ? {
+        name: brief.series.name,
+        theme: brief.series.theme,
+        arc: brief.series.arc,
+        part: `${brief.series.index} of ${brief.series.total}`,
+        this_part_angle: brief.series.angle,
+        previous_parts: brief.series.previous.slice(-4).map((x) => ({ title: x.title, text: x.text.slice(0, 600) })),
+        next_part_title: brief.series.next,
+      } : undefined,
     },
   };
   const { data } = await chatJson(cfg, WRITE_SYSTEM, JSON.stringify(input));
@@ -338,18 +391,58 @@ export async function carouselOutline(text: string, lang: ContentLang, cfg: AiCo
   return slides;
 }
 
-const IMAGE_PROMPT_SYSTEM = [
-  "You write prompts for an image model to make a LinkedIn post image.",
-  "Read the post and describe one clear visual concept that supports its message: subject, composition, setting, colors and mood, in the given style.",
-  "No words, letters, numbers or logos in the image, and no real or famous people. Keep it professional and uncluttered, with space around the subject.",
-  "Return a JSON object with key prompt (English, under 600 characters).",
+const ART_SYSTEM = [
+  "You are an award-winning art director who designs scroll-stopping LinkedIn post images.",
+  "Read the post and the brief in the input. Pick ONE strong visual concept that makes the post's core message instantly clear and makes people stop scrolling. Avoid clichés such as handshakes, light bulbs, puzzle pieces, generic laptops and stock-photo smiles.",
+  "Write a detailed image prompt in English with these parts in order: the concept in one sentence; the main subject and what it is doing; composition and framing for the given aspect ratio (where the subject sits, what is in the foreground and background, where the empty space is); setting and props; lighting; color palette (use the brand colors when given); medium and rendering details matching the style; mood.",
+  "Never include real or famous people, company logos, trademarks, watermarks or UI screenshots of real products. People, if any, are anonymous and diverse.",
+  "If overlay_text is given, design the layout around it: say exactly where the text goes, in a clean bold sans-serif, high contrast, large and perfectly spelled, written exactly as given, and that no other text appears. If overlay_text is empty, the image must contain no text, letters or numbers at all.",
+  "Also suggest headline: a very short punchy line (at most 6 words) in the post's language that could go on the image, and alt: a one-sentence image description in the post's language for accessibility.",
+  "Return a JSON object with keys prompt (under 1400 characters), headline, alt.",
 ].join(" ");
 
-export async function imagePromptFor(text: string, style: string, cfg: AiConfig): Promise<string> {
-  const { data } = await chatJson(cfg, IMAGE_PROMPT_SYSTEM, JSON.stringify({ style, post: text.slice(0, 2500) }));
-  const prompt = asString(asRecord(data).prompt, 2000).trim();
+export interface ArtBrief {
+  text: string;
+  lang: ContentLang;
+  style: string;
+  aspect: ImageAspect;
+  overlay: string;
+  brandColors: string;
+  role: string;
+}
+
+export interface ArtDirection {
+  prompt: string;
+  headline: string;
+  alt: string;
+}
+
+const ASPECT_WORDS: Record<ImageAspect, string> = { portrait: "vertical 4:5 portrait", square: "square 1:1", landscape: "horizontal 1.91:1 landscape" };
+
+export async function artDirection(brief: ArtBrief, cfg: AiConfig): Promise<ArtDirection> {
+  const input = {
+    post: brief.text.slice(0, 2500),
+    post_lang: brief.lang,
+    author_role: brief.role,
+    style: imageStyle(brief.style).direction,
+    aspect_ratio: ASPECT_WORDS[brief.aspect],
+    brand_colors: brief.brandColors,
+    overlay_text: brief.overlay,
+  };
+  const { data } = await chatJson(cfg, ART_SYSTEM, JSON.stringify(input));
+  const raw = asRecord(data);
+  const prompt = asString(raw.prompt, 3000).trim();
   if (!prompt) throw new Error("The model returned an empty prompt");
-  return prompt;
+  return { prompt, headline: asString(raw.headline, 80).trim(), alt: asString(raw.alt, 300).trim() };
+}
+
+export function finalImagePrompt(prompt: string, style: string, aspect: ImageAspect, overlay: string, brandColors: string): string {
+  const parts = [prompt.trim(), `Style: ${imageStyle(style).direction}.`, `Format: ${ASPECT_WORDS[aspect]}, made for a LinkedIn feed, sharp details, professional finish.`];
+  if (brandColors.trim()) parts.push(`Color palette: ${brandColors.trim()}.`);
+  const text = overlay.trim().replace(/"/g, "'");
+  parts.push(text ? `Render this exact text once, large, clean and perfectly spelled: "${text}". No other text, logos or watermarks.` : "No text, letters, numbers, logos or watermarks anywhere in the image.");
+  parts.push("No real or famous people.");
+  return parts.join("\n");
 }
 
 export interface PlanItem {
@@ -367,6 +460,10 @@ const PLAN_SYSTEM = [
 ].join(" ");
 
 const DAY_ORDER = [2, 4, 0, 1, 3, 6, 5];
+
+export function freeDates(from: Date, count: number, perWeek: number, bestDays: number[], taken: Set<string>): string[] {
+  return planDates(from, 52, perWeek, bestDays).filter((d) => !taken.has(d)).slice(0, Math.max(0, count));
+}
 
 export function planDates(from: Date, weeks: number, perWeek: number, bestDays: number[]): string[] {
   const valid = bestDays.filter((d) => d >= 0 && d <= 6);
@@ -409,35 +506,105 @@ export async function planContent(dates: string[], profile: Profile, posts: Post
   return items.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-const SIZES: Record<string, Record<ImageSize, string>> = {
-  "dall-e-3": { square: "1024x1024", landscape: "1792x1024", portrait: "1024x1792" },
-  default: { square: "1024x1024", landscape: "1536x1024", portrait: "1024x1536" },
+const CUSTOM_SIZE_MODEL = /^gpt-image-([2-9]|\d{2,})/;
+const IMAGE_FALLBACKS = ["gpt-image-2", "gpt-image-1.5", "gpt-image-1-mini"];
+const ASPECT_SIZE: Record<"custom" | "fixed", Record<ImageAspect, string>> = {
+  custom: { square: "1024x1024", portrait: "1024x1280", landscape: "1536x800" },
+  fixed: { square: "1024x1024", portrait: "1024x1536", landscape: "1536x1024" },
 };
 
-export interface GeneratedImage {
-  b64: string;
-  type: string;
+export function imageSize(model: string, aspect: ImageAspect): string {
+  return ASPECT_SIZE[CUSTOM_SIZE_MODEL.test(model) ? "custom" : "fixed"][aspect];
+}
+
+export function imageModelChain(model: string): string[] {
+  return [...new Set([model, ...IMAGE_FALLBACKS])];
+}
+
+export interface ImageRequest {
   model: string;
   prompt: string;
+  aspect: ImageAspect;
+  quality: ImageQuality;
+  count: number;
 }
 
-async function requestImage(key: string, model: string, prompt: string, size: ImageSize, signal?: AbortSignal): Promise<GeneratedImage> {
-  const dalle = model === "dall-e-3";
-  const payload: Record<string, unknown> = { model, prompt, n: 1, size: (SIZES[model] ?? SIZES.default!)[size] };
-  if (dalle) Object.assign(payload, { response_format: "b64_json", quality: "standard" });
-  else payload.quality = "medium";
+export interface GeneratedImage {
+  images: Array<{ b64: string; type: string }>;
+  model: string;
+  prompt: string;
+  size: string;
+}
+
+function canFallBack(error: unknown): boolean {
+  if (isModelAccessError(error)) return true;
+  return error instanceof OpenAiError && error.status === 400 && /model|size|quality/i.test(error.message) && !/safety|moderation|content policy/i.test(error.message);
+}
+
+async function requestImage(key: string, req: ImageRequest, signal?: AbortSignal): Promise<GeneratedImage> {
+  const size = imageSize(req.model, req.aspect);
+  const payload = { model: req.model, prompt: req.prompt, n: Math.min(MAX_IMAGE_COUNT, Math.max(1, Math.round(req.count))), size, quality: req.quality, output_format: "webp", output_compression: 92 };
   const data = asRecord(await postJson(key, "/images/generations", payload, signal));
-  const first = asRecord(Array.isArray(data.data) ? data.data[0] : null);
-  const b64 = asString(first.b64_json, 30_000_000);
-  if (!b64) throw new Error("The image model returned no image");
-  return { b64, type: "image/png", model, prompt: asString(first.revised_prompt, 4000) || prompt };
+  const images = (Array.isArray(data.data) ? data.data : []).map((x) => asString(asRecord(x).b64_json, 30_000_000)).filter(Boolean).map((b64) => ({ b64, type: "image/webp" }));
+  if (images.length === 0) throw new Error("The image model returned no image");
+  return { images, model: req.model, prompt: req.prompt, size };
 }
 
-export async function generateImage(cfg: AiConfig, model: string, prompt: string, size: ImageSize): Promise<GeneratedImage> {
-  try {
-    return await requestImage(cfg.key, model, prompt, size, cfg.signal);
-  } catch (error) {
-    if (!isModelAccessError(error) || model === "dall-e-3") throw error;
-    return requestImage(cfg.key, "dall-e-3", prompt, size, cfg.signal);
+export async function generateImage(cfg: AiConfig, req: ImageRequest): Promise<GeneratedImage> {
+  let last: unknown;
+  for (const model of imageModelChain(req.model)) {
+    try {
+      return await requestImage(cfg.key, { ...req, model }, cfg.signal);
+    } catch (error) {
+      if (!canFallBack(error)) throw error;
+      last = error;
+    }
   }
+  throw last;
+}
+
+export interface SeriesBrief {
+  topic: string;
+  goal: string;
+  count: number;
+  lang: ContentLang;
+}
+
+export type SeriesPlan = Omit<ContentSeries, "id" | "createdAt">;
+
+const SERIES_SYSTEM = [
+  NAME_RULE,
+  "You are a senior LinkedIn content strategist. Design one connected post series for the user in the input.",
+  "If brief.topic is empty, choose the series topic that best serves their goals and target audience, based on their profile and pillars.",
+  "A series is a story over several posts: each part has a clear, different angle, builds on the previous part and makes people want the next one. Start with a strong opener that sets the promise, move from problem to insight to practical how-to to proof, and end with a recap or a call to action.",
+  "Mix formats where it helps (text, image, carousel, poll). Do not repeat their recent posts.",
+  "Write name (short and catchy), theme, arc (how the parts connect), audience and goal in natural Jordanian-flavored Arabic. Write each part's title, angle and why in Arabic, and hook (the actual first line of the post) in brief.lang.",
+  FACTS_RULE,
+  "Return a JSON object with keys name, theme, arc, audience, goal, pillar, parts: an array with exactly brief.count objects in order, each with title, hook, angle (2 or 3 sentences on what this part covers and how it links to the previous one), format (text, image, carousel, poll, video or article), why.",
+].join(" ");
+
+export async function planSeries(brief: SeriesBrief, profile: Profile, posts: Post[], strategy: ContentStrategy | null, settings: ContentSettings, existing: string[], cfg: AiConfig): Promise<SeriesPlan> {
+  const count = Math.min(MAX_SERIES_PARTS, Math.max(3, Math.round(brief.count)));
+  const input = {
+    profile: profileBlock(profile, settings, strategy),
+    what_works: strategy?.works ?? [],
+    recent_posts: excerpt(posts, 10, 250),
+    existing_ideas: existing.slice(0, 40),
+    brief: { topic: brief.topic, goal: brief.goal, count, lang: brief.lang },
+  };
+  const { data } = await chatJson(cfg, SERIES_SYSTEM, JSON.stringify(input));
+  const raw = asRecord(data);
+  const parts = (Array.isArray(raw.parts) ? raw.parts : []).map(sanitizeSeriesPart).filter((x): x is SeriesPart => x !== null).slice(0, count);
+  const name = asString(raw.name, 200).trim();
+  if (!name || parts.length < 2) throw new Error("The model returned an empty series");
+  return {
+    name,
+    theme: asString(raw.theme, 800).trim(),
+    arc: asString(raw.arc, 1200).trim(),
+    audience: asString(raw.audience, 400).trim(),
+    goal: asString(raw.goal, 400).trim() || brief.goal,
+    lang: brief.lang,
+    pillar: asString(raw.pillar, 120).trim(),
+    parts,
+  };
 }

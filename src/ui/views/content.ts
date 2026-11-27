@@ -1,20 +1,25 @@
-import { analyzeContent, planContent, planDates, rewritePost, suggestIdeas, weekdayIndex, type PlanItem } from "../../ai/content";
 import {
-  contentStats, draftTitle, DRAFT_STATUSES, FORMAT_LABEL, hasArabic, IMAGE_MODELS, LANG_LABEL, newDraft, newId, normalizeHashtag, STATUS_LABEL, WEEKDAYS_AR,
-  type ContentIdea, type ContentLang, type Draft, type DraftStatus, type Post, type PostMetrics,
+  analyzeContent, IMAGE_ASPECT_LABEL, IMAGE_MODEL_LABEL, IMAGE_QUALITY_LABEL, IMAGE_STYLES, planContent, planDates, planSeries, rewritePost, suggestIdeas, weekdayIndex,
+  type PlanItem, type SeriesPlan,
+} from "../../ai/content";
+import {
+  contentStats, draftTitle, DRAFT_STATUSES, FORMAT_LABEL, hasArabic, IMAGE_ASPECTS, IMAGE_MODELS, IMAGE_QUALITIES, LANG_LABEL, MAX_IMAGE_COUNT, newDraft, newId, normalizeHashtag, POST_FORMATS, STATUS_LABEL, WEEKDAYS_AR,
+  type ContentIdea, type ContentLang, type Draft, type DraftStatus, type ImageAspect, type ImageQuality, type Post, type PostFormat, type PostMetrics,
 } from "../../core/content";
 import { barFill, columnChart } from "../charts";
 import { ago, badge, card, emptyState, kpi, runAi, type Ctx } from "../context";
+import { addDraft, autopilot, findDraft, ideaDraft, nextDates, saveSeries, seriesDrafts, seriesLabel, todayIso, writeDraft, writeIdeas, writeSeries, type BatchResult } from "../drafts";
 import { field, fmtNumber, h, numberInput, select, textArea, textInput } from "../dom";
 import { icon } from "../icons";
-import { addDraft, findDraft, imageThumb, renderEditor } from "./editor";
+import { imageThumb, renderEditor } from "./editor";
 import { postsSyncCard } from "./postsSync";
 
-type Tab = "overview" | "board" | "calendar" | "posts" | "settings";
+type Tab = "overview" | "board" | "series" | "calendar" | "posts" | "settings";
 
 const TABS: Array<[Tab, string]> = [
   ["overview", "نظرة عامة"],
   ["board", "الأفكار والمسودات"],
+  ["series", "السلاسل"],
   ["calendar", "التقويم"],
   ["posts", "منشوراتي"],
   ["settings", "إعدادات المحتوى"],
@@ -35,6 +40,17 @@ interface ContentUi {
   planPicked: Set<string>;
   planWeeks: number;
   planFrom: string;
+  autoTopic: string;
+  autoFormat: PostFormat | "";
+  autoImage: boolean;
+  autoSchedule: boolean;
+  seriesTopic: string;
+  seriesGoal: string;
+  seriesCount: number;
+  seriesLang: ContentLang | "";
+  seriesFrom: string;
+  seriesImages: boolean;
+  seriesPlan: SeriesPlan | null;
 }
 
 const ui: ContentUi = {
@@ -52,12 +68,18 @@ const ui: ContentUi = {
   planPicked: new Set(),
   planWeeks: 2,
   planFrom: "",
+  autoTopic: "",
+  autoFormat: "",
+  autoImage: true,
+  autoSchedule: true,
+  seriesTopic: "",
+  seriesGoal: "",
+  seriesCount: 5,
+  seriesLang: "",
+  seriesFrom: "",
+  seriesImages: false,
+  seriesPlan: null,
 };
-
-function todayIso(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 function openDraft(ctx: Ctx, id: string): void {
   ui.draftId = id;
@@ -75,8 +97,24 @@ function createDraft(ctx: Ctx, patch: Partial<Draft> = {}): void {
   openDraft(ctx, draft.id);
 }
 
-function ideaDraft(idea: ContentIdea, extra: Partial<Draft> = {}): Draft {
-  return newDraft({ title: idea.title, text: idea.hook, pillar: idea.pillar, format: idea.format, lang: idea.lang, status: "idea", notes: idea.why, ...extra });
+function batchToast(ctx: Ctx, result: BatchResult, what: string): void {
+  if (result.failed === 0) return ctx.toast(`انكتب ${fmtNumber(result.done)} ${what}. راجعهم من لوحة المسودات.`);
+  ctx.toast(`انكتب ${fmtNumber(result.done)} وفشل ${fmtNumber(result.failed)}. ${result.firstError}`, result.done ? "ok" : "error");
+}
+
+async function writeNow(ctx: Ctx, idea: ContentIdea): Promise<void> {
+  const draft = addDraft(ctx, ideaDraft(idea));
+  await runAi(ctx, "كتابة المنشور…", (cfg) => writeDraft(ctx, cfg, draft.id));
+  openDraft(ctx, draft.id);
+}
+
+async function writeAll(ctx: Ctx, ideas: ContentIdea[], onDone: () => void): Promise<void> {
+  if (ideas.length === 0) return;
+  if (!window.confirm(`رح يكتب ${fmtNumber(ideas.length)} منشور كاملين كمسودات. كمّل؟`)) return;
+  const result = await runAi(ctx, "كتابة الأفكار كلها…", (cfg, progress) => writeIdeas(ctx, cfg, ideas, progress));
+  if (!result) return;
+  onDone();
+  batchToast(ctx, result, "منشورات");
 }
 
 function savedTitles(ctx: Ctx): Set<string> {
@@ -98,7 +136,7 @@ function ideaRow(ctx: Ctx, idea: ContentIdea, saved: Set<string>): HTMLElement {
       idea.why ? h("p", { class: "muted small" }, idea.why) : null,
     ),
     h("div", { class: "idea-actions" },
-      h("button", { type: "button", class: "small", onclick: () => openDraft(ctx, addDraft(ctx, ideaDraft(idea)).id) }, icon("pen"), "اكتبه هلأ"),
+      h("button", { type: "button", class: "small", onclick: () => void writeNow(ctx, idea) }, icon("spark"), "اكتبه هلأ"),
       isSaved ? badge("محفوظة", "good") : h("button", { type: "button", class: "secondary small", onclick: save }, icon("plus"), "احفظ"),
     ),
   );
@@ -149,20 +187,52 @@ function strategyCard(ctx: Ctx): HTMLElement {
 
 function moreIdeasCard(ctx: Ctx): HTMLElement {
   const s = ctx.store.state;
+  const scratch = s.content.posts.length === 0;
   const focus = textInput(ui.focus, (v) => (ui.focus = v), { placeholder: "اختياري: ركّز على… (مثال: Spring Boot، قصص من الشغل، نصايح للمبتدئين)" });
   const more = async (): Promise<void> => {
     ui.focus = focus.value.trim();
     const existing = [...s.content.drafts.map((d) => draftTitle(d)), ...(s.content.strategy?.ideas.map((i) => i.title) ?? []), ...ui.extraIdeas.map((i) => i.title)];
-    const result = await runAi(ctx, "تجهيز أفكار جديدة…", (cfg) => suggestIdeas(s.profile, s.content.posts, s.content.strategy, s.content.settings, existing, ui.focus, 8, cfg));
+    const result = await runAi(ctx, scratch ? "بناء أفكار من ملفك…" : "تجهيز أفكار جديدة…", (cfg) => suggestIdeas(s.profile, s.content.posts, s.content.strategy, s.content.settings, existing, ui.focus, 8, cfg));
     if (!result) return;
     ui.extraIdeas = [...result, ...ui.extraIdeas].slice(0, 40);
     ctx.store.emit();
   };
   const saved = savedTitles(ctx);
+  const fresh = ui.extraIdeas.filter((i) => !saved.has(i.title.trim().toLowerCase()));
   return h("section", { class: "card" },
-    h("h2", { class: "with-icon" }, icon("target"), "بدك أفكار أكثر؟"),
+    h("h2", { class: "with-icon" }, icon("target"), scratch ? "اقتراحات من الصفر" : "بدك أفكار أكثر؟"),
+    scratch ? h("p", { class: "muted small" }, "ما في منشورات قديمة؟ مش مشكلة. الذكاء الاصطناعي بيقرأ ملفك (شغلك، مهاراتك، مشاريعك، أهدافك) وبيقترح أول منشورات بالترتيب الأسهل.") : null,
     h("div", { class: "toolbar" }, focus, h("button", { type: "button", onclick: () => void more() }, icon("spark"), "اقترح 8 أفكار")),
     ui.extraIdeas.length ? h("ul", { class: "ideas" }, ui.extraIdeas.map((i) => ideaRow(ctx, i, saved))) : null,
+    fresh.length > 1 ? h("div", { class: "row" }, h("button", { type: "button", class: "secondary", onclick: () => void writeAll(ctx, fresh, () => (ui.extraIdeas = ui.extraIdeas.filter((i) => !fresh.includes(i)))) }, icon("pen"), `اكتبهم كلهم (${fmtNumber(fresh.length)})`)) : null,
+  );
+}
+
+function autopilotCard(ctx: Ctx): HTMLElement {
+  const topic = textInput(ui.autoTopic, (v) => (ui.autoTopic = v), { placeholder: "اختياري: عن شو؟ اتركه فاضي والذكاء الاصطناعي بيختار أفضل فكرة إلك" });
+  const format = select([["", "النوع: الذكاء الاصطناعي بيختار"], ...POST_FORMATS.filter((f) => f !== "video").map((f): [string, string] => [f, FORMAT_LABEL[f]])], ui.autoFormat, (v) => (ui.autoFormat = v as PostFormat | ""), { "aria-label": "نوع المنشور" });
+  const withImage = h("input", { type: "checkbox", checked: ui.autoImage });
+  withImage.addEventListener("change", () => (ui.autoImage = withImage.checked));
+  const schedule = h("input", { type: "checkbox", checked: ui.autoSchedule });
+  schedule.addEventListener("change", () => (ui.autoSchedule = schedule.checked));
+  const go = async (): Promise<void> => {
+    ui.autoTopic = topic.value;
+    const result = await runAi(ctx, "تجهيز منشور كامل…", (cfg, progress) => autopilot(ctx, cfg, { topic: ui.autoTopic, format: ui.autoFormat, image: ui.autoImage, schedule: ui.autoSchedule }, progress));
+    if (!result) return;
+    ui.autoTopic = "";
+    if (result.imageError) ctx.toast(`المنشور جاهز بس الصورة ما زبطت: ${result.imageError}`, "error");
+    else ctx.toast(result.date ? `جاهز ومجدول ${result.date}. راجعه وانشره بإيدك.` : "جاهز. راجعه وانشره بإيدك.");
+    openDraft(ctx, result.id);
+  };
+  return h("section", { class: "card autopilot" },
+    h("h2", { class: "with-icon" }, icon("spark"), "منشور كامل بضغطة"),
+    h("p", { class: "muted small" }, "فكرة ← كتابة بصوتك ← صورة مصممة ← موعد بأفضل يوم فاضي. بتراجع كل إشي قبل النشر، وإحنا ما بننشر لحالنا."),
+    h("div", { class: "toolbar" }, topic, format),
+    h("div", { class: "row wrap" },
+      h("label", { class: "check" }, withImage, "مع صورة"),
+      h("label", { class: "check" }, schedule, "جدوله بأقرب يوم مناسب"),
+      h("button", { type: "button", onclick: () => void go() }, icon("spark"), "جهّزلي منشور"),
+    ),
   );
 }
 
@@ -186,6 +256,7 @@ function renderOverview(ctx: Ctx): HTMLElement {
   const months = stats.byMonth.slice(-12);
   return h("div", { class: "view" },
     intro,
+    autopilotCard(ctx),
     h("div", { class: "kpis" },
       kpi("منشوراتك", fmtNumber(stats.total), stats.total ? `معدل الطول ${fmtNumber(stats.avgLength)} حرف` : "ارفع Shares.csv", () => switchTab(ctx, "posts")),
       kpi("آخر 90 يوم", fmtNumber(stats.last90), `${stats.perWeek90} بالأسبوع · هدفك ${target}`, undefined, stats.total > 0 && stats.perWeek90 < target ? "hot" : ""),
@@ -223,6 +294,7 @@ function draftCard(ctx: Ctx, d: Draft): HTMLElement {
           badge(FORMAT_LABEL[d.format]),
           badge(LANG_LABEL[d.lang]),
           d.pillar ? badge(d.pillar) : null,
+          d.seriesId && seriesLabel(ctx, d) ? badge(seriesLabel(ctx, d), "series") : null,
           d.scheduledFor ? badge(`📅 ${d.scheduledFor}`, d.scheduledFor < todayIso() && d.status !== "published" ? "bad" : "") : null,
         ),
       ),
@@ -276,6 +348,112 @@ function renderBoard(ctx: Ctx): HTMLElement {
         items.length === 0 ? h("p", { class: "muted small column-empty" }, st === "idea" ? "اكتب فكرة أو خذ من اقتراحات الذكاء الاصطناعي." : "فاضي") : h("ul", { class: "draft-cards" }, items.slice(0, st === "published" ? 30 : 200).map((d) => draftCard(ctx, d))),
       );
     })),
+  );
+}
+
+function seriesPlanner(ctx: Ctx): HTMLElement {
+  const s = ctx.store.state;
+  const lang = ui.seriesLang || s.content.settings.defaultLang;
+  const topic = textInput(ui.seriesTopic, (v) => (ui.seriesTopic = v), { placeholder: "مثال: رحلتي من Junior لـ Senior Backend (اتركه فاضي والذكاء الاصطناعي بيقترح)" });
+  const goal = textInput(ui.seriesGoal, (v) => (ui.seriesGoal = v), { placeholder: "اختياري: شو بدك توصل؟ مثال: شركات توظفني، أبني سمعة بالـ Cloud" });
+  const count = select(["3", "4", "5", "6", "7", "8", "10"].map((n): [string, string] => [n, `${n} منشورات`]), String(ui.seriesCount), (v) => (ui.seriesCount = Number(v)));
+  const langs = select(Object.entries(LANG_LABEL) as Array<[string, string]>, lang, (v) => (ui.seriesLang = v as ContentLang));
+  const from = h("input", { type: "date", value: ui.seriesFrom || todayIso(), "aria-label": "تبدأ من" });
+  from.addEventListener("change", () => {
+    ui.seriesFrom = from.value;
+    ctx.store.emit();
+  });
+  const images = h("input", { type: "checkbox", checked: ui.seriesImages });
+  images.addEventListener("change", () => (ui.seriesImages = images.checked));
+  const plan = async (): Promise<void> => {
+    ui.seriesTopic = topic.value.trim();
+    ui.seriesGoal = goal.value.trim();
+    const existing = s.content.drafts.map((d) => draftTitle(d));
+    const result = await runAi(ctx, "تخطيط السلسلة…", (cfg) => planSeries({ topic: ui.seriesTopic, goal: ui.seriesGoal, count: ui.seriesCount, lang }, s.profile, s.content.posts, s.content.strategy, s.content.settings, existing, cfg));
+    if (!result) return;
+    ui.seriesPlan = result;
+    ctx.store.emit();
+  };
+  const p = ui.seriesPlan;
+  const dates = p ? nextDates(ctx, p.parts.length, ui.seriesFrom || todayIso()) : [];
+  const keep = (write: boolean): void => {
+    if (!p) return;
+    const series = saveSeries(ctx, p, dates);
+    ui.seriesPlan = null;
+    ctx.store.emit();
+    if (!write) return ctx.toast(`انضافت السلسلة للتقويم (${fmtNumber(p.parts.length)} أفكار).`);
+    void runAi(ctx, `كتابة سلسلة "${p.name}"…`, (cfg, progress) => writeSeries(ctx, cfg, series.id, ui.seriesImages, progress)).then((result) => {
+      if (result) batchToast(ctx, result, "أجزاء");
+    });
+  };
+  return h("section", { class: "card" },
+    h("h2", { class: "with-icon" }, icon("spark"), "سلسلة منشورات مترابطة"),
+    h("p", { class: "muted small" }, "الذكاء الاصطناعي بيبني قصة على كذا منشور: كل جزء إله زاوية، بيبني على اللي قبله، وبيشوّق للجاي. بعدين بيكتبهم كلهم وبيوزعهم على أفضل أيامك."),
+    field("موضوع السلسلة", topic),
+    field("الهدف", goal),
+    h("div", { class: "form-grid narrow" }, field("العدد", count), field("اللغة", langs), field("تبدأ من", from)),
+    h("div", { class: "row wrap" },
+      h("label", { class: "check" }, images, "صمّم صورة لكل جزء (بيكلف من رصيد OpenAI)"),
+      h("button", { type: "button", class: p ? "secondary" : "", onclick: () => void plan() }, icon("spark"), p ? "خطة ثانية" : "خطّط السلسلة"),
+    ),
+    p ? h("div", { class: "series-plan" },
+      h("h3", { dir: "auto" }, p.name),
+      p.theme ? h("p", {}, p.theme) : null,
+      p.arc ? h("p", { class: "muted small" }, p.arc) : null,
+      h("ol", { class: "series-parts" }, p.parts.map((part, i) => h("li", {},
+        h("div", { class: "row tight wrap" }, h("strong", { dir: "auto" }, part.title), badge(FORMAT_LABEL[part.format]), dates[i] ? badge(`📅 ${WEEKDAYS_AR[new Date(`${dates[i]}T00:00:00Z`).getUTCDay()]} ${dates[i]!.slice(5)}`) : null),
+        part.hook ? h("p", { class: "idea-hook", dir: "auto" }, `"${part.hook}"`) : null,
+        part.angle ? h("p", { class: "muted small" }, part.angle) : null,
+      ))),
+      h("div", { class: "row" },
+        h("button", { type: "button", onclick: () => keep(true) }, icon("pen"), "اكتبها كلها وجدولها"),
+        h("button", { type: "button", class: "secondary", onclick: () => keep(false) }, icon("calendar"), "أضفها للتقويم كأفكار"),
+        h("button", { type: "button", class: "link", onclick: () => { ui.seriesPlan = null; ctx.store.emit(); } }, "إلغاء"),
+      ),
+    ) : null,
+  );
+}
+
+function seriesCard(ctx: Ctx, id: string): HTMLElement | null {
+  const series = ctx.store.state.content.series.find((x) => x.id === id);
+  if (!series) return null;
+  const drafts = seriesDrafts(ctx, id);
+  const pending = drafts.filter((d) => d.status === "idea" || !d.text.trim()).length;
+  const published = drafts.filter((d) => d.status === "published").length;
+  const writeRest = async (): Promise<void> => {
+    const result = await runAi(ctx, `كتابة باقي "${series.name}"…`, (cfg, progress) => writeSeries(ctx, cfg, id, false, progress));
+    if (result) batchToast(ctx, result, "أجزاء");
+  };
+  const remove = (): void => {
+    if (!window.confirm("رح تنشال السلسلة. المنشورات بتضل بالمسودات كمنشورات عادية. أكيد؟")) return;
+    ctx.store.update((s) => {
+      s.content.series = s.content.series.filter((x) => x.id !== id);
+      s.content.drafts = s.content.drafts.map((d) => (d.seriesId === id ? { ...d, seriesId: "", seriesIndex: 0 } : d));
+    }, { recompute: false });
+  };
+  return h("section", { class: "card" },
+    h("div", { class: "card-head" },
+      h("div", {}, h("h2", { dir: "auto" }, series.name), h("p", { class: "muted small" }, `${fmtNumber(drafts.length)} أجزاء · ${fmtNumber(published)} منشورة · ${fmtNumber(pending)} لسا ما انكتبت`)),
+      h("div", { class: "row tight" },
+        pending ? h("button", { type: "button", class: "small", onclick: () => void writeRest() }, icon("pen"), "اكتب الباقي") : null,
+        h("button", { type: "button", class: "link", onclick: remove }, "شيل السلسلة"),
+      ),
+    ),
+    series.theme ? h("p", {}, series.theme) : null,
+    h("ol", { class: "series-parts" }, drafts.map((d) => h("li", {},
+      h("button", { type: "button", class: "series-part", onclick: () => openDraft(ctx, d.id) },
+        h("strong", { dir: "auto" }, draftTitle(d)),
+        h("span", { class: "chips" }, badge(STATUS_LABEL[d.status], d.status === "published" ? "good" : ""), badge(FORMAT_LABEL[d.format]), d.scheduledFor ? badge(`📅 ${d.scheduledFor}`) : null, d.imageId ? badge("صورة") : null),
+      ),
+    ))),
+  );
+}
+
+function renderSeries(ctx: Ctx): HTMLElement {
+  const list = ctx.store.state.content.series;
+  return h("div", { class: "view" },
+    seriesPlanner(ctx),
+    list.length ? list.map((x) => seriesCard(ctx, x.id)) : h("p", { class: "muted small" }, "ما في سلاسل لسا. خطّط أول سلسلة من فوق."),
   );
 }
 
@@ -516,7 +694,18 @@ function renderSettings(ctx: Ctx): HTMLElement {
       h("div", { class: "form-grid" },
         field("كم منشور بالأسبوع", numberInput(settings.postsPerWeek, (v) => set((st) => (st.postsPerWeek = Math.min(14, Math.max(1, Math.round(v))))), { min: 1, max: 14 }), "2 لـ 3 بالأسبوع بداية ممتازة."),
         field("اللغة الافتراضية", select((Object.entries(LANG_LABEL) as Array<[ContentLang, string]>), settings.defaultLang, (v) => set((st) => (st.defaultLang = v as ContentLang)))),
-        field("موديل الصور", select(IMAGE_MODELS.map((mdl): [string, string] => [mdl, mdl === "dall-e-3" ? "dall-e-3 (ما بدّه توثيق)" : mdl === "gpt-image-1-mini" ? "gpt-image-1-mini (أرخص)" : `${mdl} (أفضل جودة، ممكن يحتاج توثيق)`]), settings.imageModel, (v) => set((st) => (st.imageModel = v)))),
+      ),
+    ),
+    h("section", { class: "card" },
+      h("h2", { class: "with-icon" }, icon("image"), "الصور"),
+      h("p", { class: "muted small" }, "موديلات GPT Image الجديدة من OpenAI. إذا حسابك ما بيقدر يستخدم موديل (بعضها بدها توثيق للمنظمة)، البرنامج بيجرب اللي بعده لحاله."),
+      h("div", { class: "form-grid" },
+        field("الموديل", select(IMAGE_MODELS.map((mdl): [string, string] => [mdl, IMAGE_MODEL_LABEL[mdl] ?? mdl]), settings.imageModel, (v) => set((st) => (st.imageModel = v)))),
+        field("الجودة", select(IMAGE_QUALITIES.map((q): [string, string] => [q, IMAGE_QUALITY_LABEL[q]]), settings.imageQuality, (v) => set((st) => (st.imageQuality = v as ImageQuality)))),
+        field("الستايل الافتراضي", select(Object.entries(IMAGE_STYLES).map(([k, st]): [string, string] => [k, st.label]), settings.imageStyle, (v) => set((st) => (st.imageStyle = v)))),
+        field("المقاس الافتراضي", select(IMAGE_ASPECTS.map((a): [string, string] => [a, IMAGE_ASPECT_LABEL[a]]), settings.imageAspect, (v) => set((st) => (st.imageAspect = v as ImageAspect)))),
+        field("عدد النسخ كل مرة", select(Array.from({ length: MAX_IMAGE_COUNT }, (_, i): [string, string] => [String(i + 1), String(i + 1)]), String(settings.imageCount), (v) => set((st) => (st.imageCount = Number(v))))),
+        field("ألوان البراند", textInput(settings.brandColors, (v) => set((st) => (st.brandColors = v.trim().slice(0, 200)), false), { placeholder: "مثال: navy #0B2545, teal #13A89E", dir: "ltr" }), "اختياري. بتنستعمل بكل الصور، وخصوصًا ستايل \"ألوان البراند\"."),
       ),
     ),
     h("section", { class: "card" },
@@ -550,6 +739,6 @@ export function renderContent(ctx: Ctx): HTMLElement {
       h("button", { type: "button", role: "tab", "aria-selected": String(ui.tab === id), "aria-pressed": String(ui.tab === id), onclick: () => switchTab(ctx, id) }, label))),
     h("button", { type: "button", onclick: () => createDraft(ctx) }, icon("pen"), "منشور جديد"),
   );
-  const body = ui.tab === "board" ? renderBoard(ctx) : ui.tab === "calendar" ? renderCalendar(ctx) : ui.tab === "posts" ? renderPosts(ctx) : ui.tab === "settings" ? renderSettings(ctx) : renderOverview(ctx);
+  const body = ui.tab === "board" ? renderBoard(ctx) : ui.tab === "series" ? renderSeries(ctx) : ui.tab === "calendar" ? renderCalendar(ctx) : ui.tab === "posts" ? renderPosts(ctx) : ui.tab === "settings" ? renderSettings(ctx) : renderOverview(ctx);
   return h("div", { class: "view" }, tabs, body);
 }
