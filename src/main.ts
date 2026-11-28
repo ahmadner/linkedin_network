@@ -13,6 +13,7 @@ import { closeContact, renderContacts } from "./ui/views/contacts";
 import { renderDashboard } from "./ui/views/dashboard";
 import { renderData } from "./ui/views/data";
 import { renderHome } from "./ui/views/home";
+import { renderMessages } from "./ui/views/messages";
 import { renderOpportunities } from "./ui/views/opportunities";
 import { renderOutreach } from "./ui/views/outreach";
 import { renderProfile } from "./ui/views/profile";
@@ -35,6 +36,7 @@ const GROUPS: Array<[string, Page[]]> = [
     { id: "opportunities", label: "الفرص والفجوات", icon: "target", intro: "مين تحكي معه، ووين شبكتك ناقصة مقارنة بأهدافك." },
   ]],
   ["التواصل", [
+    { id: "messages", label: "الرسائل", icon: "message", intro: "كل رسائلك، الجديد أول، مع حالة كل رسالة. اضغط مزامنة لتسحب الرسائل الجديدة من LinkedIn." },
     { id: "outreach", label: "الإرسال", icon: "send", intro: "راجع الرسائل وابعتها، أو ابعت طلبات تواصل لناس بمجالك." },
   ]],
   ["المحتوى", [
@@ -165,6 +167,7 @@ async function boot(): Promise<void> {
         case "companies": return renderCompanies(ctx);
         case "dashboard": return renderDashboard(ctx);
         case "opportunities": return renderOpportunities(ctx, render);
+        case "messages": return renderMessages(ctx, render);
         case "outreach": return renderOutreach(ctx, render);
         case "content": return renderContent(ctx);
         case "profile": return renderProfile(ctx);

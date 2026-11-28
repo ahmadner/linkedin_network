@@ -1,4 +1,5 @@
 import type { Worksheet } from "exceljs";
+import { MESSAGE_STATUS_LABEL, type InboxItem } from "../core/inbox";
 import type { Analysis, CompanyRow, Contact, MessageSet, Profile } from "../core/types";
 import { STATUSES, REPLIED_VALUES } from "../core/tracking";
 import { toCsv } from "./csv";
@@ -100,6 +101,16 @@ export const COMPANY_COLUMNS: Array<Column<CompanyRow>> = [
 ];
 
 export const CONTACT_EXPORT_COLUMNS: Array<Column<Contact>> = [...CONNECTION_COLUMNS, ...MESSAGE_COLUMNS.slice(8)];
+
+export const INBOX_COLUMNS: Array<Column<InboxItem>> = [
+  ["Date", (i) => i.message.at.slice(0, 16).replace("T", " "), 18],
+  ["Direction", (i) => (i.message.outgoing ? "Sent" : "Received"), 11],
+  ["Status", (i) => MESSAGE_STATUS_LABEL[i.status], 16],
+  ["People", (i) => i.counterpart.map((p) => p.name || p.slug).join(", "), 28],
+  ["Profile", (i) => i.counterpart.filter((p) => p.slug).map((p) => `https://www.linkedin.com/in/${p.slug}`).join(" "), 34],
+  ["Message", (i) => i.message.content, 80],
+  ["Thread", (i) => i.thread, 40],
+];
 
 export function rowsCsv<T>(cols: Array<Column<T>>, rows: T[]): string {
   return toCsv(

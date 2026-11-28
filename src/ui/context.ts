@@ -9,7 +9,7 @@ import { download, h } from "./dom";
 import { errorText } from "./errors";
 import type { Store } from "./store";
 
-export type ViewId = "home" | "data" | "contacts" | "companies" | "dashboard" | "opportunities" | "outreach" | "content" | "profile" | "ai" | "quality";
+export type ViewId = "home" | "data" | "contacts" | "companies" | "dashboard" | "opportunities" | "messages" | "outreach" | "content" | "profile" | "ai" | "quality";
 
 export interface Ctx {
   store: Store;
