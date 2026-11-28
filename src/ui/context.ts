@@ -90,6 +90,7 @@ export function linkedinLinks(ctx: Ctx, c: Pick<Contact, "slug" | "fullName" | "
 
 export const MODE_AR: Record<string, string> = { cold: "أول تواصل", reconnect: "تواصلنا قبل", nudge: "بانتظار رد" };
 
+export { awaitingMe } from "../core/history";
 export { STATUS_AR, STATUSES } from "../core/tracking";
 
 export const STATUS_TONE: Record<string, string> = { Replied: "good", "Meeting booked": "good", Referred: "good", "Closed - no fit": "muted-badge" };
@@ -105,10 +106,6 @@ export function ago(days: number | null): string {
   if (days < 30) return `قبل ${days} يوم`;
   if (days < 365) return `قبل ${Math.round(days / 30)} شهر`;
   return `قبل ${Math.round(days / 365)} سنة`;
-}
-
-export function awaitingMe(c: Contact): boolean {
-  return c.history.lastDirection === "them -> me" && c.tracking.status !== "Closed - no fit";
 }
 
 export function emptyState(title: string, text: string, action?: [string, () => void]): HTMLElement {

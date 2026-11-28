@@ -1,6 +1,6 @@
 import { daysBetween } from "./dates";
 import { personKey, slugOf } from "./text";
-import type { ContactHistory, Dataset, HistoryEvent, LogEntry, OutreachMode, Party, Tracking } from "./types";
+import type { Contact, ContactHistory, Dataset, HistoryEvent, LogEntry, OutreachMode, Party, Tracking } from "./types";
 
 export function emptyHistory(): ContactHistory {
   return {
@@ -42,6 +42,10 @@ function apply(h: ContactHistory, e: HistoryEvent): void {
   noteDates(h, e.at, e.outgoing);
   pushUnique(h.channels, e.channel);
   pushUnique(h.sources, e.source);
+}
+
+export function awaitingMe(c: Pick<Contact, "history" | "tracking">): boolean {
+  return c.history.lastDirection === "them -> me" && c.tracking.status !== "Closed - no fit";
 }
 
 export const SENT_STATUSES = new Set(["Note sent", "Message sent", "Follow-up sent", "Replied", "Meeting booked", "Referred"]);
