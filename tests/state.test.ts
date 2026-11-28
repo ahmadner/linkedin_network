@@ -5,6 +5,8 @@ import { importExport } from "../src/io/exportImport";
 import { emptyState, exportStateZip, importStateZip, reviveState } from "../src/io/state";
 import { CONTACT_EXPORT_COLUMNS, rowsCsv } from "../src/io/excel";
 import { analyze } from "../src/core/pipeline";
+import { awaitingMe } from "../src/core/history";
+import { conversations } from "../src/core/inbox";
 import { strToU8, zipSync } from "fflate";
 import { sampleFiles, sampleProfile } from "./helpers";
 
@@ -61,6 +63,20 @@ describe("state zip", () => {
     expect(s.dataset.connections[0]).not.toHaveProperty("evil");
     expect(s.dataset.connections[0]!.issues).toEqual(["notalist"]);
     expect(s.dataset.owner.name).toBe("5");
+  });
+});
+
+describe("manual conversation status", () => {
+  it("survives a save and load and changes who waits for a reply", async () => {
+    const state = await filledState();
+    const input = (st: typeof state) => ({ dataset: st.dataset, profile: st.profile, overrides: st.overrides, tracking: {}, log: [], inbox: st.inbox, aiMessages: {}, aiClassifications: {}, today: "2026-11-27" });
+    const waiting = analyze(input(state)).contacts.find((c) => c.history.lastDirection === "them -> me")!;
+    const conv = conversations(state.dataset.messages).find((c) => c.people.length === 1 && (c.people[0]!.slug === waiting.slug || c.people[0]!.name === waiting.fullName))!;
+    state.inbox = { [conv.key]: { status: "done", at: conv.last.at } };
+    const restored = importStateZip(exportStateZip(state));
+    expect(restored.inbox).toEqual(state.inbox);
+    const after = analyze(input(restored)).contacts.find((c) => c.id === waiting.id)!;
+    expect(awaitingMe(after)).toBe(false);
   });
 });
 

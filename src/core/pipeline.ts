@@ -3,7 +3,8 @@ import { daysBetween, parseDate } from "./dates";
 import { datasetEvents, hasMessageData, HistoryIndex, contactedBefore, logEvents, outreachMode, trackingEvents } from "./history";
 import { ARCHETYPE_LABEL, MessageBuilder, MODE_LABEL, pickArchetype, profileGaps } from "./messages";
 import { prepareTargeting, scoreContact } from "./scoring";
-import { cleanCompany, cleanEmail, cleanPersonName, cleanPosition, cleanProfileUrl, countryFromSlug, greetingName, nameKey } from "./text";
+import { manualDirections, type InboxOverride } from "./inbox";
+import { cleanCompany, cleanEmail, cleanPersonName, cleanPosition, cleanProfileUrl, countryFromSlug, greetingName, nameKey, personKey } from "./text";
 import type {
   AiClassification, AiMessage, Analysis, CompanyRow, Contact, Dataset, HistoryEvent, LogEntry, Profile, RawConnection, Tracking,
 } from "./types";
@@ -14,6 +15,7 @@ export interface AnalysisInput {
   overrides: Record<string, string>;
   tracking: Record<string, Tracking>;
   log: LogEntry[];
+  inbox?: Record<string, InboxOverride>;
   aiMessages: Record<string, AiMessage>;
   aiClassifications: Record<string, AiClassification>;
   today: string;
@@ -134,9 +136,12 @@ export function analyze(input: AnalysisInput): Analysis {
     if (t) events.push(...trackingEvents(c.url.slug, c.name.full, t));
   }
   const index = new HistoryIndex(events);
+  const manual = manualDirections(dataset.messages, input.inbox ?? {});
 
   const contacts: Contact[] = staged.map((c) => {
-    const { history, matchedBy } = index.lookup(c.url.slug, c.name.full);
+    const { history: tracked, matchedBy } = index.lookup(c.url.slug, c.name.full);
+    const direction = (c.url.slug ? manual.get(c.url.slug) : undefined) ?? manual.get(personKey(c.name.full));
+    const history = direction ? { ...tracked, lastDirection: direction } : tracked;
     const { mode, advice, adviceAr } = outreachMode(history, today, messageData);
     const days = history.lastContact ? daysBetween(history.lastContact, today) : null;
     const before = contactedBefore(history);
