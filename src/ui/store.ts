@@ -1,9 +1,10 @@
 import { todayIso } from "../core/dates";
 import { analyze } from "../core/pipeline";
-import type { Analysis } from "../core/types";
+import type { Analysis, Dataset } from "../core/types";
 import { saveStoredState } from "../io/db";
 import { emptyState, type AppState } from "../io/state";
 import { debounce } from "./dom";
+import { errorText } from "./errors";
 
 type Listener = () => void;
 
@@ -11,6 +12,7 @@ export class Store {
   private current: AppState;
   private cached: Analysis | null = null;
   private readonly listeners = new Set<Listener>();
+  private savedDataset: Dataset | null = null;
   saveError = "";
   savedAt = "";
 
@@ -64,13 +66,15 @@ export class Store {
   }
 
   private readonly persist = debounce(() => {
-    saveStoredState(this.current)
+    const dataset = this.current.dataset;
+    saveStoredState(this.current, dataset !== this.savedDataset)
       .then(() => {
+        this.savedDataset = dataset;
         this.saveError = "";
         this.savedAt = new Date().toLocaleTimeString();
       })
       .catch((error: unknown) => {
-        this.saveError = error instanceof Error ? error.message : String(error);
+        this.saveError = errorText(error);
       });
   }, 600);
 }

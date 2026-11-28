@@ -55,7 +55,7 @@ async function errorFrom(response: Response): Promise<OpenAiError> {
 export async function postJson(key: string, path: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
   const body = JSON.stringify(payload);
   for (let attempt = 1; ; attempt += 1) {
-    const response = await fetch(`${API}${path}`, { method: "POST", headers: headers(key), body, signal });
+    const response = await fetch(`${API}${path}`, { method: "POST", headers: headers(key), body, signal: signal ?? null });
     if (response.ok) return (await response.json()) as unknown;
     const error = await errorFrom(response);
     const retryable = (response.status === 429 && error.code !== "insufficient_quota") || response.status >= 500;

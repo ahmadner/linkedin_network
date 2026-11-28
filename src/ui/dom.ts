@@ -23,9 +23,73 @@ export function append(parent: Node, children: Array<Child | Child[]>): void {
   }
 }
 
+const FOCUSABLE = "a[href], button, input, select, textarea, summary, [tabindex]";
+
+interface FocusMark {
+  signature: string;
+  index: number;
+  path: number[];
+  selection: [number, number] | null;
+}
+
+function signature(el: Element): string {
+  const text = /^(BUTTON|A|SUMMARY)$/.test(el.tagName) || el.getAttribute("role") === "tab" ? (el.textContent ?? "").trim().slice(0, 60) : "";
+  return [el.tagName, el.id, el.getAttribute("type"), el.getAttribute("role"), el.getAttribute("name"), el.getAttribute("aria-label"), el.getAttribute("placeholder"), el.getAttribute("data-key"), text].join("|");
+}
+
+function pathOf(root: Element, el: Element): number[] {
+  const path: number[] = [];
+  for (let node: Element | null = el; node && node !== root; node = node.parentElement) {
+    path.unshift(node.parentElement ? [...node.parentElement.children].indexOf(node) : 0);
+  }
+  return path;
+}
+
+function atPath(root: Element, path: number[]): Element | null {
+  let node: Element | null = root;
+  for (const i of path) node = node?.children[i] ?? null;
+  return node;
+}
+
+function markFocus(root: Element): FocusMark | null {
+  const active = document.activeElement;
+  if (!active || active === root || !root.contains(active)) return null;
+  const sig = signature(active);
+  const same = [...root.querySelectorAll(FOCUSABLE)].filter((el) => signature(el) === sig);
+  const field = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active : null;
+  let selection: [number, number] | null = null;
+  try {
+    selection = field && field.selectionStart !== null ? [field.selectionStart, field.selectionEnd ?? field.selectionStart] : null;
+  } catch {
+    selection = null;
+  }
+  return { signature: sig, index: same.indexOf(active), path: pathOf(root, active), selection };
+}
+
+function restoreFocus(root: Element, mark: FocusMark): void {
+  if (root.contains(document.activeElement) && document.activeElement !== root) return;
+  const same = [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => signature(el) === mark.signature);
+  const byPath = atPath(root, mark.path);
+  const target = same[mark.index] ?? same[0] ?? (byPath instanceof HTMLElement && byPath.matches(FOCUSABLE) ? byPath : null);
+  if (!target) {
+    if (root instanceof HTMLElement && root.hasAttribute("tabindex")) root.focus({ preventScroll: true });
+    return;
+  }
+  target.focus({ preventScroll: true });
+  if (mark.selection && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+    try {
+      target.setSelectionRange(...mark.selection);
+    } catch {
+      return;
+    }
+  }
+}
+
 export function replace(parent: Element, ...children: Array<Child | Child[]>): void {
+  const mark = markFocus(parent);
   parent.replaceChildren();
   append(parent, children);
+  if (mark) restoreFocus(parent, mark);
 }
 
 export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number): (...args: A) => void {
@@ -96,4 +160,41 @@ export function select(options: Array<[string, string]>, value: string, onChange
 
 export function fmtNumber(n: number): string {
   return n.toLocaleString("en-US");
+}
+
+export interface TabItem {
+  id: string;
+  label: Child | Child[];
+}
+
+export function tabList(prefix: string, label: string, items: TabItem[], current: string, onSelect: (id: string) => void, attrs: Attrs = {}): HTMLDivElement {
+  const tabId = (id: string): string => `${prefix}-tab-${id}`;
+  const choose = (id: string): void => {
+    onSelect(id);
+    requestAnimationFrame(() => document.getElementById(tabId(id))?.focus());
+  };
+  const list = h("div", { ...attrs, role: "tablist", "aria-label": label }, items.map((item) => h("button", {
+    type: "button",
+    role: "tab",
+    id: tabId(item.id),
+    "aria-selected": String(item.id === current),
+    "aria-controls": `${prefix}-panel`,
+    tabindex: item.id === current ? 0 : -1,
+    class: item.id === current ? "active" : null,
+    onclick: () => choose(item.id),
+  }, item.label)));
+  list.addEventListener("keydown", (e) => {
+    const index = items.findIndex((item) => item.id === current);
+    const rtl = getComputedStyle(list).direction === "rtl";
+    const step = e.key === "ArrowRight" ? (rtl ? -1 : 1) : e.key === "ArrowLeft" ? (rtl ? 1 : -1) : 0;
+    const next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : step ? (index + step + items.length) % items.length : -1;
+    if (next < 0 || !items[next]) return;
+    e.preventDefault();
+    choose(items[next].id);
+  });
+  return list;
+}
+
+export function tabPanel(prefix: string, current: string, className: string, ...children: Array<Child | Child[]>): HTMLDivElement {
+  return h("div", { role: "tabpanel", id: `${prefix}-panel`, "aria-labelledby": `${prefix}-tab-${current}`, tabindex: 0, class: className }, ...children);
 }

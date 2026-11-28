@@ -10,6 +10,7 @@ import { imageBlob, imageExtension, imageUrl, removeImage } from "../../io/image
 import type { AiConfig } from "../../ai/openai";
 import { barFill } from "../charts";
 import { badge, runAi, type Ctx } from "../context";
+import { confirmDialog } from "../confirm";
 import { addDraft, designImage, findDraft, nextDates, saveImages, scheduleDraft, seriesLabel, updateDraft, writeDraft } from "../drafts";
 import { copyText, download, field, fmtNumber, h, pickFiles, replace, select, textArea, textInput } from "../dom";
 import { icon } from "../icons";
@@ -374,7 +375,7 @@ function imageEditor(ctx: Ctx, d: Draft): HTMLElement {
     if (blob) download(`linkedin-image-${id}.${imageExtension(blob.type)}`, blob, blob.type);
   };
   const discard = async (id: string): Promise<void> => {
-    if (!window.confirm("رح تنحذف الصورة نهائيًا. أكيد؟")) return;
+    if (!(await confirmDialog({ title: "نحذف هالصورة؟", message: "رح تنحذف نهائيًا من هاد المتصفح.", confirm: "احذف الصورة", danger: true }))) return;
     await removeImage(id);
     ctx.store.update((s) => {
       delete s.content.images[id];
@@ -518,7 +519,7 @@ export function renderEditor(ctx: Ctx, id: string, close: () => void, open: (id:
   const langs = h("div", { class: "segmented", role: "group", "aria-label": "اللغة" }, (Object.entries(LANG_LABEL) as Array<[ContentLang, string]>).map(([k, label]) =>
     h("button", { type: "button", "aria-pressed": String(d.lang === k), onclick: () => patch(ctx, id, { lang: k }) }, label)));
   const remove = async (): Promise<void> => {
-    if (!window.confirm("رح تنحذف المسودة وصورها. أكيد؟")) return;
+    if (!(await confirmDialog({ title: "نحذف هالمسودة؟", message: "رح تنحذف المسودة وكل صورها نهائيًا.", confirm: "احذف المسودة", danger: true }))) return;
     await deleteDraft(ctx, id);
     close();
   };

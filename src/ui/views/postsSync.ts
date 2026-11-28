@@ -3,6 +3,7 @@ import { mergeSyncedPosts } from "../../core/content";
 import { cancelPostsSync, collectPosts, detectExtension, postsSyncStatus, startPostsSync, supportsPosts } from "../../linkedin/bridge";
 import { type Ctx } from "../context";
 import { fmtNumber, h } from "../dom";
+import { arabicError } from "../errors";
 import { icon } from "../icons";
 
 const POLL_MS = 3000;
@@ -100,7 +101,7 @@ function statusLine(job: PostsJob): HTMLElement {
   const counts = `${fmtNumber(job.counts.posts)} منشور · ${fmtNumber(job.counts.pages)} صفحة`;
   return h("div", { class: job.state === "error" ? "job error-text" : "job" },
     h("strong", {}, `${STATE_TEXT[job.state]}: `, counts),
-    job.error ? h("p", { class: "small" }, job.error) : null,
+    job.error ? h("p", { class: "small" }, arabicError(job.error)) : null,
     job.notes.length ? h("p", { class: "muted small" }, job.notes.join(" ")) : null,
   );
 }

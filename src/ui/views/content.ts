@@ -8,8 +8,9 @@ import {
 } from "../../core/content";
 import { barFill, columnChart } from "../charts";
 import { ago, badge, card, emptyState, kpi, runAi, type Ctx } from "../context";
+import { confirmDialog } from "../confirm";
 import { addDraft, autopilot, findDraft, ideaDraft, nextDates, saveSeries, seriesDrafts, seriesLabel, todayIso, writeDraft, writeIdeas, writeSeries, type BatchResult } from "../drafts";
-import { field, fmtNumber, h, numberInput, select, textArea, textInput } from "../dom";
+import { field, fmtNumber, h, numberInput, select, tabList, tabPanel, textArea, textInput } from "../dom";
 import { icon } from "../icons";
 import { imageThumb, renderEditor } from "./editor";
 import { postsSyncCard } from "./postsSync";
@@ -112,7 +113,7 @@ async function writeNow(ctx: Ctx, idea: ContentIdea): Promise<void> {
 
 async function writeAll(ctx: Ctx, ideas: ContentIdea[], onDone: () => void): Promise<void> {
   if (ideas.length === 0) return;
-  if (!window.confirm(`رح يكتب ${fmtNumber(ideas.length)} منشور كاملين كمسودات. كمّل؟`)) return;
+  if (!(await confirmDialog({ title: `نكتب ${fmtNumber(ideas.length)} منشور كاملين؟`, message: "رح ينحفظوا كمسودات، وكل واحد طلب لـ OpenAI على حسابك.", confirm: "اكتبهم" }))) return;
   const result = await runAi(ctx, "كتابة الأفكار كلها…", (cfg, progress) => writeIdeas(ctx, cfg, ideas, progress));
   if (!result) return;
   onDone();
@@ -465,8 +466,8 @@ function seriesCard(ctx: Ctx, id: string): HTMLElement | null {
     const result = await runAi(ctx, `كتابة باقي "${series.name}"…`, (cfg, progress) => writeSeries(ctx, cfg, id, false, progress));
     if (result) batchToast(ctx, result, "أجزاء");
   };
-  const remove = (): void => {
-    if (!window.confirm("رح تنشال السلسلة. المنشورات بتضل بالمسودات كمنشورات عادية. أكيد؟")) return;
+  const remove = async (): Promise<void> => {
+    if (!(await confirmDialog({ title: "نشيل هالسلسلة؟", message: "المنشورات بتضل بالمسودات كمنشورات عادية.", confirm: "شيل السلسلة", danger: true }))) return;
     ctx.store.update((s) => {
       s.content.series = s.content.series.filter((x) => x.id !== id);
       s.content.drafts = s.content.drafts.map((d) => (d.seriesId === id ? { ...d, seriesId: "", seriesIndex: 0 } : d));
@@ -653,8 +654,8 @@ function postRow(ctx: Ctx, p: Post, compact = false): HTMLElement {
     const result = await runAi(ctx, "كتابة منشور جديد من القديم…", (cfg) => rewritePost("repurpose", p.text, lang, s.profile, s.content.settings, s.content.strategy, cfg));
     if (result) createDraft(ctx, { title: `إعادة لـ ${p.at.slice(0, 10)}`, text: result.text, hashtags: result.hashtags, lang, status: "draft", notes: result.note });
   };
-  const remove = (): void => {
-    if (!window.confirm("أكيد بدك تشيل هالمنشور من القائمة؟")) return;
+  const remove = async (): Promise<void> => {
+    if (!(await confirmDialog({ title: "نشيل هالمنشور من القائمة؟", message: "بينشال من هون بس، مش من LinkedIn.", confirm: "شيله", danger: true }))) return;
     ctx.store.update((st) => (st.content.posts = st.content.posts.filter((x) => x.id !== p.id)), { recompute: false });
   };
   return h("li", { class: "post" },
@@ -749,8 +750,8 @@ function listEditor(label: string, values: string[], save: (v: string[]) => void
 function renderSettings(ctx: Ctx): HTMLElement {
   const settings = ctx.store.state.content.settings;
   const set = (fn: (st: typeof settings) => void, emit = true): void => ctx.store.update((s) => fn(s.content.settings), { recompute: false, emit });
-  const clearStrategy = (): void => {
-    if (!window.confirm("رح ينمسح تحليل الذكاء الاصطناعي. المسودات بتضل.")) return;
+  const clearStrategy = async (): Promise<void> => {
+    if (!(await confirmDialog({ title: "نمسح تحليل الذكاء الاصطناعي؟", message: "المسودات بتضل زي ما هي.", confirm: "امسح التحليل", danger: true }))) return;
     ctx.store.update((s) => (s.content.strategy = null), { recompute: false });
   };
   return h("div", { class: "view" },
@@ -806,12 +807,12 @@ export function renderContent(ctx: Ctx): HTMLElement {
   if (ui.draftId && findDraft(ctx, ui.draftId)) return renderEditor(ctx, ui.draftId, () => closeDraft(ctx), (id) => openDraft(ctx, id));
   ui.draftId = "";
   const tabs = h("div", { class: "content-head" },
-    h("div", { class: "presets content-tabs", role: "tablist", "aria-label": "أقسام المحتوى" }, TABS.map(([id, label]) => {
+    tabList("content", "أقسام المحتوى", TABS.map(([id, label]) => {
       const n = tabCount(ctx, id);
-      return h("button", { type: "button", role: "tab", "aria-selected": String(ui.tab === id), "aria-pressed": String(ui.tab === id), onclick: () => switchTab(ctx, id) }, label, n ? h("span", { class: "preset-count" }, n) : null);
-    })),
+      return { id, label: [label, n ? h("span", { class: "preset-count" }, n) : null] };
+    }), ui.tab, (id) => switchTab(ctx, id as Tab), { class: "presets content-tabs" }),
     h("button", { type: "button", onclick: () => createDraft(ctx) }, icon("pen"), "منشور جديد"),
   );
   const body = ui.tab === "board" ? renderBoard(ctx) : ui.tab === "series" ? renderSeries(ctx) : ui.tab === "calendar" ? renderCalendar(ctx) : ui.tab === "posts" ? renderPosts(ctx) : ui.tab === "settings" ? renderSettings(ctx) : renderOverview(ctx);
-  return h("div", { class: "view" }, tabs, body);
+  return h("div", { class: "view" }, tabs, tabPanel("content", ui.tab, "tab-panel", body));
 }

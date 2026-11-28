@@ -53,6 +53,8 @@ const GROUPS: Array<[string, Page[]]> = [
 
 const PAGES = GROUPS.flatMap(([, pages]) => pages);
 
+const QUICK: ViewId[] = ["home", "contacts", "outreach", "content"];
+
 function isView(value: string): value is ViewId {
   return PAGES.some((p) => p.id === value);
 }
@@ -77,7 +79,17 @@ async function boot(): Promise<void> {
   const overlays = h("div", { class: "overlays" });
   const toasts = h("div", { class: "toasts", "aria-live": "polite" });
   const toast = createToaster(toasts);
-  const nav = h("nav", { class: "nav", "aria-label": "الأقسام" });
+  const nav = h("nav", { class: "nav", id: "all-sections", "aria-label": "الأقسام" });
+  const quick = h("nav", { class: "bottom-nav", "aria-label": "التنقل السريع" });
+  let menuOpen = false;
+  const setMenu = (open: boolean): void => {
+    const wasInside = nav.contains(document.activeElement);
+    menuOpen = open;
+    document.body.classList.toggle("menu-open", open);
+    renderQuick();
+    if (open) requestAnimationFrame(() => nav.querySelector<HTMLElement>(".nav-item")?.focus());
+    else if (wasInside) quick.querySelector("button")?.focus();
+  };
   const status = h("p", { class: "side-status" });
   const title = h("h1", {});
   const intro = h("p", { class: "muted" });
@@ -93,6 +105,7 @@ async function boot(): Promise<void> {
       const changed = view !== current;
       if (changed && current === "contacts") closeContact();
       current = view;
+      if (menuOpen) setMenu(false);
       history.replaceState(null, "", `#${view}`);
       render();
       if (changed) {
@@ -113,7 +126,23 @@ async function boot(): Promise<void> {
     return "";
   }
 
+  function renderQuick(): void {
+    const inQuick = QUICK.includes(current);
+    replace(quick,
+      QUICK.map((id) => {
+        const p = PAGES.find((page) => page.id === id)!;
+        const count = badgeFor(id);
+        const active = id === current && !menuOpen;
+        return h("a", { href: `#${id}`, class: active ? "quick-item active" : "quick-item", "aria-current": active ? "page" : null, onclick: (e: Event) => { e.preventDefault(); ctx.go(id); } },
+          icon(p.icon), h("span", {}, p.label), count && id !== "contacts" ? h("span", { class: id === "home" ? "nav-count hot" : "nav-count" }, count) : null);
+      }),
+      h("button", { type: "button", class: menuOpen || !inQuick ? "quick-item active" : "quick-item", "aria-expanded": String(menuOpen), "aria-controls": "all-sections", onclick: () => setMenu(!menuOpen) },
+        icon(menuOpen ? "close" : "menu"), h("span", {}, menuOpen ? "سكّر" : "المزيد")),
+    );
+  }
+
   function render(): void {
+    renderQuick();
     replace(nav, GROUPS.map(([group, pages]) => h("div", { class: "nav-group" },
       group ? h("span", { class: "nav-title" }, group) : null,
       pages.map((p) => {
@@ -148,6 +177,13 @@ async function boot(): Promise<void> {
   }
 
   store.subscribe(render);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && menuOpen) setMenu(false);
+  });
+  document.addEventListener("click", (e) => {
+    const target = e.target instanceof Node ? e.target : null;
+    if (menuOpen && target?.isConnected && !nav.contains(target) && !quick.contains(target)) setMenu(false);
+  });
   window.addEventListener("hashchange", () => {
     const next = location.hash.slice(1);
     if (isView(next) && next !== current) ctx.go(next);
@@ -166,6 +202,7 @@ async function boot(): Promise<void> {
         main,
       ),
     ),
+    quick,
     overlays,
     toasts,
   );

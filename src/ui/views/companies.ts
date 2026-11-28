@@ -36,7 +36,7 @@ export function renderCompanies(ctx: Ctx): HTMLElement {
     };
     replace(host,
       h("div", { class: "bulk" }, h("strong", {}, `${fmtNumber(list.length)} شركة`), exportLinks(ctx, "companies", COMPANY_COLUMNS, () => list)),
-      list.length === 0 ? h("div", { class: "card empty" }, h("h2", {}, "ما في شركات بهالبحث"), h("p", { class: "muted" }, "جرّب كلمة ثانية.")) : h("div", { class: "scroll" }, h("table", { class: "grid compact-rows" },
+      list.length === 0 ? h("div", { class: "card empty" }, h("h2", {}, "ما في شركات بهالبحث"), h("p", { class: "muted" }, "جرّب كلمة ثانية.")) : h("div", { class: "scroll", tabindex: 0, role: "region", "aria-label": "جدول الشركات" }, h("table", { class: "grid compact-rows" },
         h("thead", {}, h("tr", {}, ["الشركة", "معارف", "أفضل مدخل", "Recruiter", "أصحاب قرار", "أعلى نقاط"].map((t) => h("th", {}, t)))),
         h("tbody", {}, list.slice(view.page * PAGE_SIZE, (view.page + 1) * PAGE_SIZE).map((r) => h("tr", {},
           h("td", {}, h("span", { class: "person-text" }, h("span", { class: "name", dir: "auto" }, r.name), h("span", { class: "sub" }, r.industry))),

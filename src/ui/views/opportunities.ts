@@ -67,8 +67,8 @@ function gapsCard(ctx: Ctx, gaps: Gap[]): HTMLElement {
   return h("section", { class: "card" },
     head("فجوات الشبكة", exportLinks(ctx, "network-gaps", GAP_COLUMNS, () => gaps)),
     h("p", { class: "muted small" }, "مقارنة بين أهدافك وبين مين بتعرف فعلًا. الأحمر ما في حدا، والأصفر في بس ناقص Recruiter أو صاحب قرار أو العدد قليل."),
-    h("div", { class: "scroll" }, h("table", { class: "grid compact-rows" },
-      h("thead", {}, h("tr", {}, ["النوع", "الهدف", "معارف", "Recruiters", "أصحاب قرار", "الحالة", "شو تعمل", ""].map((t) => h("th", {}, t)))),
+    h("div", { class: "scroll", tabindex: 0, role: "region", "aria-label": "فجوات الشبكة" }, h("table", { class: "grid compact-rows" },
+      h("thead", {}, h("tr", {}, ["النوع", "الهدف", "معارف", "Recruiters", "أصحاب قرار", "الحالة", "شو تعمل", ""].map((t) => h("th", {}, t || h("span", { class: "sr-only" }, "روابط"))))),
       h("tbody", {}, gaps.map((g) => h("tr", {},
         h("td", {}, GAP_KIND_LABEL[g.kind]),
         h("td", { dir: "auto" }, g.target),
@@ -90,12 +90,12 @@ function peopleCard(ctx: Ctx, people: PersonSuggestion[], rerender: () => void):
       select([["", "كل الخطوات"], ...(Object.keys(ACTION_LABEL) as ActionKind[]).map((k): [string, string] => [k, ACTION_LABEL[k]])], view.action, (v) => {
         view.action = v as "" | ActionKind;
         rerender();
-      }),
+      }, { "aria-label": "فلترة حسب الخطوة" }),
       exportLinks(ctx, "suggested-people", PEOPLE_COLUMNS, () => list),
     ),
     h("p", { class: "muted small" }, "من شبكتك الحالية: الأعلى نقاطًا، بحد أقصى اثنين من كل شركة. المتابعة للي ما ردوا من أسبوع أو أكثر، والرجوع للي آخر تواصل معهم من 3 شهور أو أكثر."),
-    list.length === 0 ? h("p", { class: "muted" }, "ما في اقتراحات حاليًا") : h("div", { class: "scroll short" }, h("table", { class: "grid" },
-      h("thead", {}, h("tr", {}, ["الشخص", "الخطوة", "ليش", ""].map((t) => h("th", {}, t)))),
+    list.length === 0 ? h("p", { class: "muted" }, "ما في اقتراحات حاليًا") : h("div", { class: "scroll short", tabindex: 0, role: "region", "aria-label": "أشخاص تبني علاقة معهم" }, h("table", { class: "grid" },
+      h("thead", {}, h("tr", {}, ["الشخص", "الخطوة", "ليش", ""].map((t) => h("th", {}, t || h("span", { class: "sr-only" }, "روابط"))))),
       h("tbody", {}, list.map((p) => {
         const tr = h("tr", { tabindex: 0 },
           h("td", {}, h("span", { class: "person" }, avatar(ctx, p.contact), h("span", { class: "person-text" },
@@ -120,8 +120,8 @@ function companiesCard(ctx: Ctx, companies: CompanySuggestion[]): HTMLElement {
   return h("section", { class: "card" },
     head("شركات تركّز عليها", exportLinks(ctx, "suggested-companies", COMPANY_COLUMNS, () => companies)),
     h("p", { class: "muted small" }, "شركات بشبكتك من شركاتك أو قطاعاتك المستهدفة، مع أفضل شخص تبدأ فيه."),
-    companies.length === 0 ? h("p", { class: "muted" }, "ما في شركات من قطاعاتك المستهدفة بشبكتك لسا") : h("div", { class: "scroll short" }, h("table", { class: "grid compact-rows" },
-      h("thead", {}, h("tr", {}, ["الشركة", "القطاع", "معارف", "أفضل مدخل", "ليش", ""].map((t) => h("th", {}, t)))),
+    companies.length === 0 ? h("p", { class: "muted" }, "ما في شركات من قطاعاتك المستهدفة بشبكتك لسا") : h("div", { class: "scroll short", tabindex: 0, role: "region", "aria-label": "شركات من قطاعاتك" }, h("table", { class: "grid compact-rows" },
+      h("thead", {}, h("tr", {}, ["الشركة", "القطاع", "معارف", "أفضل مدخل", "ليش", ""].map((t) => h("th", {}, t || h("span", { class: "sr-only" }, "روابط"))))),
       h("tbody", {}, companies.map((s) => h("tr", {},
         h("td", { dir: "auto" }, s.targeted ? h("strong", {}, s.company.name) : s.company.name),
         h("td", {}, s.company.industry),

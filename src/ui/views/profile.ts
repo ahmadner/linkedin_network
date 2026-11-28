@@ -65,8 +65,8 @@ function checklist(all: string[], selected: string[], onChange: (v: string[]) =>
 
 function overridesEditor(ctx: Ctx): HTMLElement {
   const rows = Object.entries(ctx.store.state.overrides).sort((a, b) => a[0].localeCompare(b[0]));
-  const company = h("input", { type: "text", placeholder: "اسم الشركة" });
-  const industry = select(INDUSTRY_LABELS.filter((l) => l !== "Unknown").map((l) => [l, l]), "Software & IT Services", () => undefined);
+  const company = h("input", { type: "text", placeholder: "اسم الشركة", "aria-label": "اسم الشركة" });
+  const industry = select(INDUSTRY_LABELS.filter((l) => l !== "Unknown").map((l) => [l, l]), "Software & IT Services", () => undefined, { "aria-label": "القطاع" });
   const add = (): void => {
     const key = company.value.trim().toLowerCase();
     if (!key) return;
@@ -74,7 +74,7 @@ function overridesEditor(ctx: Ctx): HTMLElement {
   };
   return h("div", {},
     h("table", { class: "grid compact" },
-      h("thead", {}, h("tr", {}, h("th", {}, "الشركة"), h("th", {}, "القطاع"), h("th", {}, ""))),
+      h("thead", {}, h("tr", {}, h("th", {}, "الشركة"), h("th", {}, "القطاع"), h("th", {}, h("span", { class: "sr-only" }, "إجراء")))),
       h("tbody", {}, rows.map(([k, v]) => h("tr", {}, h("td", {}, k), h("td", {}, v), h("td", {},
         h("button", { type: "button", class: "link", onclick: () => ctx.store.update((s) => delete s.overrides[k]) }, "حذف"))))),
     ),

@@ -4,7 +4,9 @@ const DB_NAME = "linkedin-network";
 const DB_VERSION = 2;
 const STATE = "state";
 const IMAGES = "images";
-const KEY = "current";
+const LEGACY_KEY = "current";
+const PART_PREFIX = "part:";
+const PARTS = ["profile", "overrides", "dataset", "tracking", "log", "ai", "content"] as const satisfies ReadonlyArray<keyof AppState>;
 
 type StoreName = typeof STATE | typeof IMAGES;
 
@@ -39,16 +41,34 @@ function run<T>(name: StoreName, mode: IDBTransactionMode, action: (store: IDBOb
   );
 }
 
-export function loadStoredState(): Promise<unknown> {
-  return run(STATE, "readonly", (store) => store.get(KEY));
+export async function loadStoredState(): Promise<unknown> {
+  const legacy = await run<unknown>(STATE, "readonly", (store) => store.get(LEGACY_KEY));
+  if (legacy) return legacy;
+  const entries: Array<[string, unknown]> = [];
+  await run(STATE, "readonly", (store) => {
+    const cursor = store.openCursor(IDBKeyRange.bound(PART_PREFIX, `${PART_PREFIX}\uffff`));
+    cursor.onsuccess = () => {
+      const at = cursor.result;
+      if (!at) return;
+      entries.push([String(at.key).slice(PART_PREFIX.length), at.value]);
+      at.continue();
+    };
+  });
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
-export function saveStoredState(state: AppState): Promise<IDBValidKey> {
-  return run(STATE, "readwrite", (store) => store.put(state, KEY));
+export function saveStoredState(state: AppState, withDataset: boolean): Promise<void> {
+  return run(STATE, "readwrite", (store) => {
+    for (const part of PARTS) {
+      if (part === "dataset" && !withDataset) continue;
+      store.put(state[part], `${PART_PREFIX}${part}`);
+    }
+    store.delete(LEGACY_KEY);
+  });
 }
 
 export function clearStoredState(): Promise<void> {
-  return Promise.all([run(STATE, "readwrite", (store) => store.delete(KEY)), clearImages()]).then(() => undefined);
+  return Promise.all([run(STATE, "readwrite", (store) => void store.clear()), clearImages()]).then(() => undefined);
 }
 
 export function getImageBlob(id: string): Promise<Blob | undefined> {
