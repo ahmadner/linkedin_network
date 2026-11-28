@@ -276,7 +276,7 @@ async function importProfileJson(ctx: Ctx, rerender: () => void): Promise<void> 
 function fieldGuide(fields: FieldGuide[]): HTMLElement {
   return h("details", { class: "guide" },
     h("summary", {}, "شرح الأعمدة"),
-    h("div", { class: "scroll" }, h("table", { class: "grid compact-rows" },
+    h("div", { class: "scroll", tabindex: 0, role: "region", "aria-label": "شرح الأعمدة" }, h("table", { class: "grid compact-rows" },
       h("thead", {}, h("tr", {}, ["العمود", "ضروري؟", "شو تكتب", "مثال"].map((t) => h("th", {}, t)))),
       h("tbody", {}, fields.map((f) => h("tr", {},
         h("td", { dir: "ltr" }, h("code", {}, f.header)),

@@ -29,6 +29,7 @@
   --sidebar: 248px;
   --bottom-nav: 3.75rem;
   --on-status: #ffffff;
+  --accent-chip: rgb(0 0 0 / 28%);
   --scrim: rgb(15 23 42 / 32%);
   --scrim-strong: rgb(15 23 42 / 45%);
   --shadow-dock: 0 -4px 12px rgb(0 0 0 / 6%);
@@ -87,6 +88,7 @@
     --shadow: none;
     --shadow-lg: 0 12px 40px rgb(0 0 0 / 50%);
     --on-status: #0e131d;
+    --accent-chip: rgb(255 255 255 / 40%);
     --scrim: rgb(0 0 0 / 55%);
     --scrim-strong: rgb(0 0 0 / 65%);
     --shadow-dock: 0 -4px 12px rgb(0 0 0 / 35%);
@@ -121,6 +123,7 @@
   --shadow: none;
   --shadow-lg: 0 12px 40px rgb(0 0 0 / 50%);
   --on-status: #0e131d;
+  --accent-chip: rgb(255 255 255 / 40%);
   --scrim: rgb(0 0 0 / 55%);
   --scrim-strong: rgb(0 0 0 / 65%);
   --shadow-dock: 0 -4px 12px rgb(0 0 0 / 35%);
@@ -276,7 +279,7 @@ button.kpi:hover:not(:disabled) { background: var(--surface); border-color: var(
 .presets button:hover:not(:disabled), .segmented button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--accent); }
 .presets button[aria-pressed="true"], .presets button[aria-selected="true"], .segmented button[aria-pressed="true"], .presets button[aria-pressed="true"]:hover:not(:disabled), .presets button[aria-selected="true"]:hover:not(:disabled), .segmented button[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .preset-count { font-size: var(--fs-xs); padding: 0 var(--space-2); border-radius: 999px; background: var(--surface-3); color: var(--muted); }
-.presets button[aria-pressed="true"] .preset-count, .presets button[aria-selected="true"] .preset-count { background: rgb(255 255 255 / 22%); color: inherit; }
+.presets button[aria-pressed="true"] .preset-count, .presets button[aria-selected="true"] .preset-count { background: var(--accent-chip); color: inherit; }
 .presets button.hot:not([aria-pressed="true"], [aria-selected="true"]) .preset-count { background: var(--bad); color: var(--on-status); }
 .segmented { display: inline-flex; gap: 0; }
 .segmented button { border-radius: 0; }
