@@ -60,7 +60,7 @@ function firefoxManifest() {
   manifest.version = firefoxVersion;
   manifest.background = { scripts: [background.service_worker], type: "module" };
   manifest.content_scripts = [{ matches: [...new Set(matches)], js: ["bridge.js"], run_at: "document_start" }];
-  manifest.browser_specific_settings = { gecko: { id: target.geckoId, strict_min_version: "128.0", data_collection_permissions: { required: ["none"] } } };
+  manifest.browser_specific_settings = { gecko: { id: target.geckoId, strict_min_version: "140.0", data_collection_permissions: { required: ["none"] } }, gecko_android: { strict_min_version: "142.0" } };
   return manifest;
 }
 
@@ -75,7 +75,7 @@ for (const browser of ["chrome", "firefox"]) {
     outdir: out,
     bundle: true,
     format: "esm",
-    target: firefox ? "firefox128" : "chrome116",
+    target: firefox ? "firefox140" : "chrome116",
     minify: true,
     legalComments: "none",
     define: firefox ? { ...define, chrome: "browser" } : define,
@@ -86,7 +86,7 @@ for (const browser of ["chrome", "firefox"]) {
       outdir: out,
       bundle: true,
       format: "iife",
-      target: "firefox128",
+      target: "firefox140",
       minify: true,
       legalComments: "none",
       define: { chrome: "browser" },
