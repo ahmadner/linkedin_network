@@ -145,7 +145,9 @@ const ANALYZE_SYSTEM = [
   "Return a JSON object with exactly these keys: stage, tone, summary_ar, next_step_ar, reply_ar, reply_en.",
 ].join(" ");
 
-export async function analyzeConversation(contact: Contact, profile: Profile, history: StoredMessage[], cfg: AiConfig, today: string): Promise<ConversationAnalysis> {
+export type ConversationPartner = Pick<Contact, "greetingName" | "positionPrimary" | "positionClean" | "companyClean">;
+
+export async function analyzeConversation(contact: ConversationPartner, profile: Profile, history: StoredMessage[], cfg: AiConfig, today: string): Promise<ConversationAnalysis> {
   if (history.length === 0) throw new Error("There is no conversation with this contact");
   const limit = profile.messaging.message_char_limit;
   const input = {
