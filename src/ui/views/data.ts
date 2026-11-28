@@ -14,6 +14,7 @@ import { LOG_FIELDS, logTemplateCsv, parseLogCsv, parseProfileJson, PROFILE_FIEL
 import { emptyState, sanitizeTracking, stateFileName } from "../../io/state";
 import { cancelSync, clearExtensionData, collectResult, detectExtension, LOCAL_TOOL, startSync, syncStatus } from "../../linkedin/bridge";
 import { badge, card, type Ctx } from "../context";
+import { confirmDialog } from "../confirm";
 import { append, download, fmtNumber, h, pickFiles } from "../dom";
 import { arabicError, errorText } from "../errors";
 import { icon } from "../icons";
@@ -383,7 +384,7 @@ export function renderData(ctx: Ctx, rerender: () => void): HTMLElement {
     ctx.toast("رجعت كل البيانات من ملف الحفظ");
   };
   const reset = async (): Promise<void> => {
-    if (!window.confirm("رح تنمسح كل البيانات من هاد المتصفح. نزّلت ملف الحفظ قبل؟")) return;
+    if (!(await confirmDialog({ title: "نمسح كل البيانات من هاد المتصفح؟", message: "إذا ما نزّلت ملف حفظ قبل، ما في طريقة ترجّعها.", confirm: "امسح كل شي", danger: true }))) return;
     await clearStoredState();
     forgetAllImageUrls();
     ctx.store.replace(emptyState());

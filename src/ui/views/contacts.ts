@@ -10,6 +10,7 @@ import { TEMPLATE_IDS, TEMPLATE_LABEL, TEMPLATES_WITH_JOB, TemplateBuilder, type
 import type { Contact, ConversationAnalysis, MessageSet, StoredMessage, Tracking } from "../../core/types";
 import { CONTACT_EXPORT_COLUMNS } from "../../io/excel";
 import { ago, avatar, awaitingMe, badge, exportLinks, linkedinLinks, MODE_AR, noData, runAi, STATUS_AR, statusBadge, STATUSES, type Ctx } from "../context";
+import { confirmDialog } from "../confirm";
 import { copyText, field, fmtNumber, h, replace, select, tabList, tabPanel, textArea, textInput } from "../dom";
 import { icon } from "../icons";
 import { queueMessages } from "./outreach";
@@ -545,10 +546,10 @@ export function renderContacts(ctx: Ctx, rerender: () => void): HTMLElement {
       queueMessages(ctx, ready.map((c) => ({ contact: c, text: messageFor(c, view.source, profile, ai.templates) })));
     };
     const tagInput = h("input", { type: "text", list: "known-tags", placeholder: "وسم", "aria-label": "وسم", class: "short" });
-    const tag = (): void => {
+    const tag = async (): Promise<void> => {
       const values = tagInput.value.split(",").map((v) => v.trim()).filter(Boolean);
       if (values.length === 0 || target.length === 0) return;
-      if (!window.confirm(`إضافة "${values.join(", ")}" لـ ${fmtNumber(target.length)} شخص؟`)) return;
+      if (!(await confirmDialog({ title: `نضيف الوسم لـ ${fmtNumber(target.length)} شخص؟`, message: `الوسم: ${values.join("، ")}`, confirm: "أضف الوسم" }))) return;
       ctx.store.update((s) => {
         for (const c of target) {
           const next = { ...newTracking(), ...s.tracking[c.id] };

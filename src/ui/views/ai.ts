@@ -6,6 +6,7 @@ import { conversationIndex } from "../../core/conversations";
 import { todayIso } from "../../core/dates";
 import type { Contact } from "../../core/types";
 import { aiErrorText, card, keepFallbackModel, type Ctx } from "../context";
+import { confirmDialog } from "../confirm";
 import { field, fmtNumber, h } from "../dom";
 
 const MODELS: Array<[string, string]> = [
@@ -113,7 +114,7 @@ export function renderAi(ctx: Ctx): HTMLElement {
   const writeAll = async (): Promise<void> => {
     const key = requireKey();
     if (!key || priority.length === 0) return;
-    if (!window.confirm(`رح نبعت ${priority.length} طلب لـ OpenAI على حسابك. نكمل؟`)) return;
+    if (!(await confirmDialog({ title: `نكتب رسائل لـ ${fmtNumber(priority.length)} شخص؟`, message: "كل شخص طلب منفصل لـ OpenAI على حسابك.", confirm: "اكتب الرسائل" }))) return;
     await runBatch(ctx, "كتابة رسائل لأولوية A…", priority, async (c, cfg) => {
       const result = await generateMessages(c, state.profile, index.of(c), cfg);
       ctx.store.update((s) => (s.ai.messages[c.id] = result), { emit: false });
@@ -124,7 +125,7 @@ export function renderAi(ctx: Ctx): HTMLElement {
   const analyzeAll = async (list: Contact[]): Promise<void> => {
     const key = requireKey();
     if (!key || list.length === 0) return;
-    if (!window.confirm(`رح نبعت ${fmtNumber(list.length)} محادثة لـ OpenAI على حسابك. نكمل؟`)) return;
+    if (!(await confirmDialog({ title: `نحلّل ${fmtNumber(list.length)} محادثة؟`, message: "المحادثات رح تنبعت لـ OpenAI على حسابك.", confirm: "حلّل المحادثات" }))) return;
     const today = todayIso();
     await runBatch(ctx, "تحليل المحادثات…", list, async (c, cfg) => {
       const result = await analyzeConversation(c, state.profile, index.of(c), cfg, today);
@@ -133,8 +134,8 @@ export function renderAi(ctx: Ctx): HTMLElement {
     ctx.store.update(() => undefined, { recompute: false });
   };
 
-  const clearAi = (): void => {
-    if (!window.confirm("مسح كل الرسائل والتصنيفات الي عملها الذكاء الاصطناعي؟")) return;
+  const clearAi = async (): Promise<void> => {
+    if (!(await confirmDialog({ title: "نمسح شغل الذكاء الاصطناعي؟", message: "رح تنمسح كل الرسائل والتصنيفات اللي عملها. ما بنقدر نرجّعها.", confirm: "امسح", danger: true }))) return;
     ctx.store.update((s) => {
       s.ai.messages = {};
       s.ai.classifications = {};
