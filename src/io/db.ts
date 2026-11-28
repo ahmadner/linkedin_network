@@ -44,10 +44,17 @@ function run<T>(name: StoreName, mode: IDBTransactionMode, action: (store: IDBOb
 export async function loadStoredState(): Promise<unknown> {
   const legacy = await run<unknown>(STATE, "readonly", (store) => store.get(LEGACY_KEY));
   if (legacy) return legacy;
-  const values = await run<unknown[]>(STATE, "readonly", (store) => store.getAll(IDBKeyRange.bound(PART_PREFIX, `${PART_PREFIX}\uffff`)));
-  const keys = await run<IDBValidKey[]>(STATE, "readonly", (store) => store.getAllKeys(IDBKeyRange.bound(PART_PREFIX, `${PART_PREFIX}\uffff`)));
-  if (keys.length === 0) return undefined;
-  return Object.fromEntries(keys.map((key, i) => [String(key).slice(PART_PREFIX.length), values[i]]));
+  const entries: Array<[string, unknown]> = [];
+  await run(STATE, "readonly", (store) => {
+    const cursor = store.openCursor(IDBKeyRange.bound(PART_PREFIX, `${PART_PREFIX}\uffff`));
+    cursor.onsuccess = () => {
+      const at = cursor.result;
+      if (!at) return;
+      entries.push([String(at.key).slice(PART_PREFIX.length), at.value]);
+      at.continue();
+    };
+  });
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 export function saveStoredState(state: AppState, withDataset: boolean): Promise<void> {
