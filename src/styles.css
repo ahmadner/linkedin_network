@@ -765,3 +765,4 @@ dialog.confirm p { margin: 0 0 var(--space-6); }
 .quick-item.active { color: var(--accent); font-weight: 700; }
 .quick-item .icon { inline-size: 1.3rem; block-size: 1.3rem; }
 .quick-item .nav-count { position: absolute; inset-block-start: var(--space-1); inset-inline-start: calc(50% + .35rem); line-height: 1.4; }
+.help code { font-size: var(--fs-xs); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 var(--space-1); overflow-wrap: anywhere; unicode-bidi: isolate; }

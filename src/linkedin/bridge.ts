@@ -1,6 +1,7 @@
 import type {
-  CandidatesResponse, CollectedConnection, CollectedMessage, CollectedPost, FetchResponse, HelloResponse, JobResponse, JobStatus, OutboxDraft, OutboxKind, OutboxResponse, PostsJob, PostsJobResponse, Request, SyncOptions, SyncSince,
+  CandidatesResponse, CollectedConnection, CollectedMessage, CollectedPost, ExtensionEnvelope, FetchResponse, HelloResponse, JobResponse, JobStatus, OutboxDraft, OutboxKind, OutboxResponse, PageEnvelope, PostsJob, PostsJobResponse, Request, SyncOptions, SyncSince,
 } from "../../extension/src/protocol";
+import { EXTENSION_CHANNEL, PAGE_CHANNEL } from "../../extension/src/protocol";
 import { sanitizePost, type Post, type SyncedPost } from "../core/content";
 import targets from "../../extension/targets.json";
 import { sanitizeSyncPayload, type SyncPayload } from "../core/dataset";
@@ -10,6 +11,9 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
 export const LOCAL_TOOL = LOCAL_HOSTS.has(globalThis.location?.hostname ?? "");
 const EXTENSION_ID = LOCAL_TOOL ? targets.local.id : targets.production.id;
 const PAGE = 1000;
+
+const HELLO_TIMEOUT_MS = 2500;
+const REQUEST_TIMEOUT_MS = 120_000;
 
 interface PageRuntime {
   sendMessage(id: string, message: unknown, callback: (response: unknown) => void): void;
@@ -21,22 +25,67 @@ function runtime(): PageRuntime | null {
   return chromeGlobal?.runtime?.sendMessage ? chromeGlobal.runtime : null;
 }
 
-function send<T>(request: Request): Promise<T> {
-  const rt = runtime();
-  if (!rt) return Promise.reject(new Error("The extension is not installed in this browser."));
+function settle<T>(response: unknown, resolve: (value: T) => void, reject: (error: Error) => void): void {
+  const r = response as { ok?: boolean; error?: string } | undefined;
+  if (!r || r.ok !== true) reject(new Error(r?.error ?? "The extension did not answer."));
+  else resolve(response as T);
+}
+
+function viaRuntime<T>(rt: PageRuntime, request: Request): Promise<T> {
   return new Promise((resolve, reject) => {
     rt.sendMessage(EXTENSION_ID, request, (response) => {
       const error = rt.lastError;
-      if (error) return reject(new Error(error.message ?? "The extension did not answer."));
-      const r = response as { ok?: boolean; error?: string } | undefined;
-      if (!r || r.ok !== true) return reject(new Error(r?.error ?? "The extension did not answer."));
-      resolve(response as T);
+      if (error) reject(new Error(error.message ?? "The extension did not answer."));
+      else settle(response, resolve, reject);
     });
   });
 }
 
+let nextId = 1;
+
+function viaContentScript<T>(request: Request): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const id = nextId;
+    nextId += 1;
+    const done = (): void => {
+      clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+    };
+    const onMessage = (event: MessageEvent): void => {
+      const data = event.data as Partial<ExtensionEnvelope> | null;
+      if (event.source !== window || event.origin !== location.origin || data?.channel !== EXTENSION_CHANNEL || data.id !== id) return;
+      done();
+      settle(data.response, resolve, reject);
+    };
+    const timer = setTimeout(() => {
+      done();
+      reject(new Error(request.type === "hello" ? "The extension is not installed in this browser." : "The extension did not answer."));
+    }, request.type === "hello" ? HELLO_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+    window.addEventListener("message", onMessage);
+    window.postMessage({ channel: PAGE_CHANNEL, id, request } satisfies PageEnvelope, location.origin);
+  });
+}
+
+let bridgeReady: Promise<boolean> | null = null;
+
+function contentScriptReady(): Promise<boolean> {
+  bridgeReady ??= viaContentScript<HelloResponse>({ type: "hello" }).then(() => true, () => {
+    bridgeReady = null;
+    return false;
+  });
+  return bridgeReady;
+}
+
+async function send<T>(request: Request): Promise<T> {
+  const rt = runtime();
+  if (rt) return viaRuntime<T>(rt, request);
+  if (typeof window === "undefined" || (request.type !== "hello" && !(await contentScriptReady()))) throw new Error("The extension is not installed in this browser.");
+  return viaContentScript<T>(request);
+}
+
+export const IS_FIREFOX = /\bFirefox\//.test(globalThis.navigator?.userAgent ?? "");
+
 export async function detectExtension(): Promise<HelloResponse | null> {
-  if (!runtime()) return null;
   try {
     return await send<HelloResponse>({ type: "hello" });
   } catch {

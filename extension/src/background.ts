@@ -2,7 +2,7 @@ import {
   CONNECTION_ENDPOINTS, conversationsPageUrl, findGraphqlUrls, messagesUrl, parseConnections, parseConversations, parseMe, parseMessages,
   VOYAGER, type ParsedConversation, type QueryIds,
 } from "./linkedin";
-import type { CollectedConnection, CollectedMessage, ErrorResponse, JobStatus, Request, SyncOptions, SyncSince } from "./protocol";
+import type { BridgedRequest, CollectedConnection, CollectedMessage, ErrorResponse, JobStatus, Request, SyncOptions, SyncSince } from "./protocol";
 import { clearCollected, count, loadJob, loadPostsJob, page, putConnections, putMessages, saveJob } from "./store";
 import { OUTBOX_ALARM, outboxStatus, processOutbox, readCandidates, startOutbox, stopOutbox } from "./outbox";
 import { cancelPosts, POSTS_ALARM, runPostsJob, startPosts } from "./postsSync";
@@ -352,17 +352,33 @@ function respond(request: Request, sendResponse: (r: unknown) => void): true {
 }
 
 chrome.runtime.onMessageExternal.addListener((request: Request, sender, sendResponse) => {
-  const url = sender.url ?? "";
-  if (!sender.origin || !__TOOL_ORIGINS__.includes(sender.origin) || !__TOOL_PREFIXES__.some((prefix) => url.startsWith(prefix))) {
+  if (!sender.origin || !__TOOL_ORIGINS__.includes(sender.origin) || !fromTool(sender.url)) {
     sendResponse({ ok: false, error: "This page is not allowed to use the extension" } satisfies ErrorResponse);
     return false;
   }
   return respond(request, sendResponse);
 });
 
-chrome.runtime.onMessage.addListener((request: Request, sender, sendResponse) => {
-  if (sender.id !== chrome.runtime.id || (request.type !== "status" && request.type !== "cancel" && request.type !== "posts-status")) return false;
-  return respond(request, sendResponse);
+function fromTool(url = ""): boolean {
+  return __TOOL_PREFIXES__.some((prefix) => url.startsWith(prefix));
+}
+
+function isBridged(message: unknown): message is BridgedRequest {
+  const m = message as Partial<BridgedRequest> | null;
+  return typeof m === "object" && m !== null && m.bridge === true && typeof m.request?.type === "string";
+}
+
+chrome.runtime.onMessage.addListener((message: Request | BridgedRequest, sender, sendResponse) => {
+  if (sender.id !== chrome.runtime.id) return false;
+  if (isBridged(message)) {
+    if (!sender.tab || !fromTool(sender.url)) {
+      sendResponse({ ok: false, error: "This page is not allowed to use the extension" } satisfies ErrorResponse);
+      return false;
+    }
+    return respond(message.request, sendResponse);
+  }
+  if (message.type !== "status" && message.type !== "cancel" && message.type !== "posts-status") return false;
+  return respond(message, sendResponse);
 });
 
 chrome.webRequest.onBeforeRequest.addListener(

@@ -14,7 +14,7 @@
 | الطريقة | متى | ليش |
 |---|---|---|
 | **ملف الـ Export الرسمي** | أول مرة | أسرع وأأمن طريقة لسحب آلاف الأشخاص وكل الرسائل دفعة وحدة |
-| **Chrome Extension** | كل مرة بعدها | بيسحب بس الجديد من آخر مزامنة: أشخاص جدد ورسائل جديدة |
+| **إضافة المتصفح (Chrome أو Firefox)** | كل مرة بعدها | بيسحب بس الجديد من آخر مزامنة: أشخاص جدد ورسائل جديدة |
 
 ### ليش مش تسجيل دخول بالإيميل وكلمة المرور؟
 - الـ API الرسمي لـ LinkedIn ما بيعطي قائمة الـ connections ولا الرسائل لأي تطبيق عادي.
@@ -30,11 +30,23 @@
 
 الملف بينقرا بالخلفية (Web Worker)، فالصفحة ما بتعلق حتى لو الملف كبير.
 
-### بعدها: Chrome Extension
-1. من صفحة **البيانات** اضغط **تحميل الـ Extension** وفك الضغط بمجلد ثابت
+### بعدها: إضافة المتصفح (Chrome أو Firefox)
+
+**Chrome** (و Edge و Brave):
+1. من صفحة **البيانات** اضغط **تحميل لـ Chrome** وفك الضغط بمجلد ثابت
 2. افتح `chrome://extensions`، فعّل **Developer mode**، واضغط **Load unpacked** واختار المجلد
 3. تأكد إنك مسجّل دخول على linkedin.com بنفس المتصفح
 4. ارجع للموقع واضغط **مزامنة الآن**
+
+**Firefox** (128 أو أحدث):
+1. من صفحة **البيانات** اضغط **تحميل لـ Firefox** (ما في داعي تفك الضغط)
+2. افتح `about:debugging#/runtime/this-firefox` واضغط **Load Temporary Add-on** واختار ملف الـ zip
+3. من `about:addons` تأكد إنه الإضافة مسموح لها توصل لـ linkedin.com ولموقع الأداة
+4. ارجع للموقع واضغط **مزامنة الآن**
+
+> فايرفوكس بيشيل الإضافة المؤقتة لما يتسكّر. للتركيب الدائم لازم توقيع من Mozilla (AMO، ممكن كـ unlisted)،
+> أو Firefox Developer Edition مع `xpinstall.signatures.required = false`.
+> فايرفوكس ما بيسمح لصفحة ويب تحكي مع إضافة مباشرة، فنسخة فايرفوكس فيها content script صغير على صفحة الأداة بس، بينقل الرسائل بين الصفحة والإضافة.
 
 كيف بيشتغل:
 - بيفتح تبويب LinkedIn بالخلفية وبيقرا بنفس الطلبات الي LinkedIn نفسه بيعملها. المزامنة **قراءة بس**.
@@ -154,15 +166,15 @@ npm test             # vitest
 npm run build        # الموقع + الـ Extension داخل dist/
 ```
 
-الـ Extension إله نسختين، كل وحدة بـ ID مختلف، فبتقدر تركّبهم مع بعض:
+الإضافة إلها نسختين، كل وحدة بـ ID مختلف، فبتقدر تركّبهم مع بعض. كل أمر بيبني نسخة Chrome ونسخة Firefox:
 
-| النسخة | الأمر | المجلد | بيشتغل مع |
-|---|---|---|---|
-| محلية | `npm run extension:local` | `dist-extension/local` | `http://localhost:5173` و `4173` |
-| إنتاج | `npm run extension:production` | `dist-extension/production` | موقع GitHub Pages |
+| النسخة | الأمر | مجلد Chrome | مجلد Firefox | بتشتغل مع |
+|---|---|---|---|---|
+| محلية | `npm run extension:local` | `dist-extension/local` | `dist-extension/local-firefox` | `http://localhost:5173` و `4173` |
+| إنتاج | `npm run extension:production` | `dist-extension/production` | `dist-extension/production-firefox` | موقع GitHub Pages |
 
 الإعدادات بملف `extension/targets.json`. الموقع بيختار النسخة لحاله: على `localhost` بيحكي مع المحلية، وغير هيك مع نسخة الإنتاج.
-بعد أي تعديل على الـ Extension، أعد البناء واضغط زر التحديث ↻ عليه بـ `chrome://extensions`.
+بعد أي تعديل على الإضافة، أعد البناء واضغط زر التحديث ↻ عليها بـ `chrome://extensions`، أو **Reload** بـ `about:debugging` على فايرفوكس.
 
 النشر تلقائي: أي push على `main` بيشغّل الاختبارات وبيبني وبينشر على GitHub Pages.
 فعّل مرة وحدة: **Settings ← Pages ← Source: GitHub Actions**.
@@ -176,8 +188,8 @@ src/
   ai/          OpenAI: المفتاح، الطلبات، الرسائل، التصنيف
   linkedin/    الربط مع الـ Extension
   ui/          الواجهة
-extension/     Chrome Extension (Manifest V3)
-scripts/       بناء الـ Extension
+extension/     إضافة المتصفح (Manifest V3) لـ Chrome و Firefox
+scripts/       بناء الإضافة
 samples/       بيانات وهمية للتجربة والاختبارات
 tests/
 ```
