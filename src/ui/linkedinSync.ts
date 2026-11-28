@@ -1,9 +1,9 @@
 import type { JobStatus, SyncOptions } from "../../extension/src/protocol";
-import { mergeSync } from "../core/dataset";
+import { mergeSync, type SyncPayload } from "../core/dataset";
 import { cleanProfileUrl } from "../core/text";
 import { cancelSync, clearExtensionData, collectResult, detectExtension, startSync, syncStatus } from "../linkedin/bridge";
 import { badge, type Ctx } from "./context";
-import { fmtNumber, h } from "./dom";
+import { fmtNumber, h, whenIdle } from "./dom";
 import { arabicError, errorText } from "./errors";
 
 export type ExtensionState = "unknown" | "ready" | "missing";
@@ -12,7 +12,12 @@ export const linkedinSync = {
   state: "unknown" as ExtensionState,
   version: "",
   job: null as JobStatus | null,
+  autoPaused: "",
 };
+
+export type ManualSyncOptions = Omit<SyncOptions, "quick">;
+
+const LAST_START_KEY = "lnt.sync.lastStart";
 
 const PHASE_AR: Record<string, string> = {
   starting: "تجهيز",
@@ -27,12 +32,57 @@ const PHASE_AR: Record<string, string> = {
 let poller: ReturnType<typeof setInterval> | undefined;
 let detecting: Promise<void> | null = null;
 let finishing = false;
+let emitPending = false;
+let memoryLastStart = 0;
+const autoJobs = new Set<string>();
+
+export function lastSyncStart(): number {
+  try {
+    const value = Number(localStorage.getItem(LAST_START_KEY));
+    return Number.isFinite(value) && value > 0 ? value : memoryLastStart;
+  } catch {
+    return memoryLastStart;
+  }
+}
+
+function markSyncStart(): void {
+  memoryLastStart = Date.now();
+  try {
+    localStorage.setItem(LAST_START_KEY, String(memoryLastStart));
+  } catch {
+    return;
+  }
+}
+
+function isAuto(job: JobStatus): boolean {
+  return job.options.quick === true || autoJobs.has(job.id);
+}
+
+function emitWhenIdle(ctx: Ctx): void {
+  if (emitPending) return;
+  emitPending = true;
+  whenIdle(() => {
+    emitPending = false;
+    ctx.store.emit();
+  });
+}
+
+async function collectQuietly(ctx: Ctx, job: JobStatus): Promise<SyncPayload | undefined> {
+  try {
+    return await collectResult(job, () => undefined);
+  } catch (error) {
+    ctx.toast(errorText(error), "error");
+    return undefined;
+  }
+}
 
 async function finishSync(ctx: Ctx, job: JobStatus): Promise<void> {
   if (finishing) return;
   finishing = true;
+  const auto = isAuto(job);
+  autoJobs.delete(job.id);
   try {
-    const payload = await ctx.busy("نقل البيانات من الإضافة…", (progress) => collectResult(job, progress));
+    const payload = auto ? await collectQuietly(ctx, job) : await ctx.busy("نقل البيانات من الإضافة…", (progress) => collectResult(job, progress));
     if (!payload) return;
     let people = 0;
     let messages = 0;
@@ -42,8 +92,15 @@ async function finishSync(ctx: Ctx, job: JobStatus): Promise<void> {
       s.dataset = mergeSync(s.dataset, payload);
       people = payload.connections.filter((c) => !known.has(c.slug)).length;
       messages = s.dataset.messages.length - before;
-    });
+    }, { emit: !auto });
     await clearExtensionData().catch(() => undefined);
+    if (auto) {
+      if (people > 0 || messages > 0) {
+        ctx.toast(`مزامنة تلقائية: ${fmtNumber(messages)} رسالة جديدة، ${fmtNumber(people)} شخص جديد`);
+        emitWhenIdle(ctx);
+      }
+      return;
+    }
     ctx.toast(`تمت المزامنة: ${fmtNumber(people)} شخص جديد، ${fmtNumber(payload.connections.length - people)} تحدّثت بياناتهم، ${fmtNumber(messages)} رسالة جديدة`);
     for (const n of payload.notes) ctx.toast(n);
   } finally {
@@ -65,7 +122,10 @@ function poll(ctx: Ctx, rerender: () => void): void {
         if (!job || job.state !== "running") {
           stopPolling();
           if (job?.state === "done") await finishSync(ctx, job);
-          else if (job?.state === "error") ctx.toast(arabicError(job.error), "error");
+          else if (job?.state === "error") {
+            if (isAuto(job)) linkedinSync.autoPaused = arabicError(job.error);
+            ctx.toast(arabicError(job.error), "error");
+          }
         }
         rerender();
       })
@@ -104,14 +164,23 @@ export function syncRunning(): boolean {
   return linkedinSync.job?.state === "running";
 }
 
-export async function runSync(ctx: Ctx, rerender: () => void, options: SyncOptions): Promise<void> {
+export function syncBusy(): boolean {
+  return finishing || syncRunning();
+}
+
+export async function runSync(ctx: Ctx, rerender: () => void, options: ManualSyncOptions, auto = false): Promise<void> {
   const { sync } = ctx.store.state.dataset;
+  if (!auto) linkedinSync.autoPaused = "";
+  markSyncStart();
   try {
-    linkedinSync.job = await startSync({ newestConnectionAt: sync.newestConnectionAt, newestMessageAt: sync.newestMessageAt }, options);
+    const job = await startSync({ newestConnectionAt: sync.newestConnectionAt, newestMessageAt: sync.newestMessageAt }, { ...options, quick: auto });
+    if (job && auto) autoJobs.add(job.id);
+    else if (job) autoJobs.delete(job.id);
+    linkedinSync.job = job;
     poll(ctx, rerender);
     rerender();
   } catch (error) {
-    ctx.toast(errorText(error), "error");
+    if (!auto) ctx.toast(errorText(error), "error");
   }
 }
 

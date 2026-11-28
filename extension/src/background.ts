@@ -4,6 +4,7 @@ import {
 } from "./linkedin";
 import type { BridgedRequest, CollectedConnection, CollectedMessage, ErrorResponse, JobStatus, Request, SyncOptions, SyncSince } from "./protocol";
 import { clearCollected, count, loadJob, loadPostsJob, page, putConnections, putMessages, saveJob } from "./store";
+import { messagesSinceMs, sanitizeOptions } from "./options";
 import { OUTBOX_ALARM, outboxStatus, processOutbox, readCandidates, startOutbox, stopOutbox } from "./outbox";
 import { cancelPosts, POSTS_ALARM, runPostsJob, startPosts } from "./postsSync";
 import { closeTabs, FEED_URL, isFatal, linkedinTab as sharedLinkedinTab, openTab as openSharedTab, pageRequest, resourceUrls, sleep, StopError } from "./tab";
@@ -91,11 +92,6 @@ async function syncConnections(job: JobStatus, tabId: number): Promise<void> {
 function dayBefore(day: string): string {
   const ms = Date.parse(day);
   return Number.isFinite(ms) ? new Date(ms - DAY_MS).toISOString().slice(0, 10) : "";
-}
-
-function sinceMessagesMs(job: JobStatus): number {
-  const ms = job.since.newestMessageAt ? Date.parse(job.since.newestMessageAt) : 0;
-  return Number.isFinite(ms) && ms > 0 ? ms - DAY_MS : 0;
 }
 
 async function loadConversations(): Promise<ParsedConversation[]> {
@@ -197,7 +193,7 @@ async function syncMessages(job: JobStatus): Promise<void> {
     note(job, "Message history was not read: LinkedIn messaging did not load in the background tab. Open linkedin.com/messaging once in this browser, then sync again.");
     return;
   }
-  const sinceMs = sinceMessagesMs(job);
+  const sinceMs = messagesSinceMs(job.since.newestMessageAt, job.options.quick === true);
 
   if (job.phase !== "messages") {
     try {
@@ -285,11 +281,6 @@ async function start(since: SyncSince, options: SyncOptions): Promise<JobStatus>
   await chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
   void runJob();
   return job;
-}
-
-function sanitizeOptions(value: Partial<SyncOptions> | undefined): SyncOptions {
-  const max = Number(value?.maxConversations);
-  return { messages: value?.messages !== false, photos: value?.photos === true, maxConversations: Number.isFinite(max) && max > 0 ? Math.min(max, 20_000) : 3000 };
 }
 
 function sanitizeSince(value: Partial<SyncSince> | undefined): SyncSince {
