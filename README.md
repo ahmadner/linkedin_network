@@ -38,7 +38,7 @@
 3. تأكد إنك مسجّل دخول على linkedin.com بنفس المتصفح
 4. ارجع للموقع واضغط **مزامنة الآن**
 
-**Firefox** (128 أو أحدث): من صفحة **البيانات** اضغط **تحميل لـ Firefox** وبتنزل `linkedin-network-extension.xpi`.
+**Firefox** (140 أو أحدث، أو 142 على أندرويد): من صفحة **البيانات** اضغط **تحميل لـ Firefox** وبتنزل `linkedin-network-extension.xpi`.
 - **إذا الملف موقّع من Mozilla:** اضغط الزر من فايرفوكس نفسه، ووافق على التركيب. التركيب دائم.
 - **إذا مش موقّع:**
   - على Firefox Developer Edition أو Nightly أو ESR: خلّي `xpinstall.signatures.required = false` بـ `about:config`، وبعدها من `about:addons` ← الترس ← **Install Add-on From File**. التركيب دائم.
