@@ -51,7 +51,7 @@ async function runBatch<T>(ctx: Ctx, label: string, items: T[], work: (item: T, 
 export function renderAi(ctx: Ctx): HTMLElement {
   const state = ctx.store.state;
   const keyInput = h("input", { type: "password", autocomplete: "off", spellcheck: "false", placeholder: "sk-...", value: getApiKey() });
-  const remember = h("input", { type: "checkbox", checked: isKeyRemembered() });
+  const remember = h("input", { type: "checkbox", checked: isKeyRemembered(), "aria-describedby": "remember-hint" });
   const options = MODELS.some(([id]) => id === state.ai.model) ? MODELS : [...MODELS, [state.ai.model, ""] as [string, string]];
   const model = h("select", {}, options.map(([id, note]) => h("option", { value: id, selected: id === state.ai.model }, note ? `${id}: ${note}` : id)));
   model.addEventListener("change", () => ctx.store.update((s) => (s.ai.model = model.value), { recompute: false }));
@@ -153,6 +153,7 @@ export function renderAi(ctx: Ctx): HTMLElement {
         field("الموديل", model, "إذا الموديل مش متاح لحسابك، الأداة بتكمل لحالها بـ " + DEFAULT_MODEL),
       ),
       h("label", { class: "check" }, remember, " تذكّر المفتاح على هاد الجهاز (بدونها بينمسح لما تسكّر التبويب)"),
+      h("p", { class: "hint", id: "remember-hint" }, "لما تختار تذكّر، المفتاح بينحفظ بالمتصفح كنص عادي. أي حدا بيستخدم هاد الجهاز أو حساب المتصفح بيقدر يوصله. استعمله بس على جهازك الشخصي، وحط حد صرف للمفتاح من إعدادات OpenAI."),
       h("div", { class: "row" },
         h("button", { type: "button", onclick: saveKey }, "حفظ"),
         h("button", { type: "button", class: "secondary", onclick: () => void test() }, "فحص المفتاح"),
