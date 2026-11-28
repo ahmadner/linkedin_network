@@ -4,6 +4,7 @@ import type { Analysis } from "../core/types";
 import { saveStoredState } from "../io/db";
 import { emptyState, type AppState } from "../io/state";
 import { debounce } from "./dom";
+import { errorText } from "./errors";
 
 type Listener = () => void;
 
@@ -70,7 +71,7 @@ export class Store {
         this.savedAt = new Date().toLocaleTimeString();
       })
       .catch((error: unknown) => {
-        this.saveError = error instanceof Error ? error.message : String(error);
+        this.saveError = errorText(error);
       });
   }, 600);
 }

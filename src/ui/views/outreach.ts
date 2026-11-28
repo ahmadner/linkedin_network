@@ -7,6 +7,7 @@ import type { Contact } from "../../core/types";
 import { outboxCancel, outboxStart, outboxStatus, searchCandidates } from "../../linkedin/bridge";
 import { avatar, badge, linkedinLinks, type Ctx } from "../context";
 import { copyText, fmtNumber, h } from "../dom";
+import { arabicError, errorText } from "../errors";
 
 interface MessageDraft {
   key: string;
@@ -36,21 +37,6 @@ let poller: ReturnType<typeof setInterval> | undefined;
 
 const ITEM_STATE: Record<OutboxItem["state"], [string, string]> = { pending: ["بالانتظار", ""], sent: ["انبعتت", "good"], failed: ["فشلت", "bad"] };
 
-const ERRORS: Array<[RegExp, string]> = [
-  [/today's safe limit/i, "وصلت الحد الآمن لليوم. الباقي بضل بالقائمة لبكرا."],
-  [/this week's safe limit/i, "وصلت الحد الآمن لهالأسبوع. الباقي بضل بالقائمة للأسبوع الجاي."],
-  [/security check/i, "LinkedIn طلب تحقق أمني. افتح linkedin.com وكمّل التحقق، وما تبعت إشي لمدة يوم."],
-  [/too many requests/i, "LinkedIn بيقول في طلبات كثير. استنى يوم قبل ما تبعت مرة ثانية."],
-  [/not signed in/i, "مش مسجل دخول على LinkedIn بهاد المتصفح. سجّل دخول وجرّب مرة ثانية."],
-  [/stopped by you/i, "وقفتها إنت."],
-  [/people search/i, "افتح صفحة بحث أشخاص على LinkedIn بهاد المتصفح أول."],
-  [/still running/i, "في قائمة إرسال لسا شغّالة. وقفها أول."],
-  [/not installed|did not answer/i, "الـ Extension مش مركّب أو مش شغّال. نزّله من صفحة البيانات."],
-];
-
-function arabic(message: string): string {
-  return ERRORS.find(([re]) => re.test(message))?.[1] ?? message;
-}
 
 export function queueMessages(ctx: Ctx, items: Array<{ contact: Contact; text: string }>): void {
   let added = 0;
@@ -129,7 +115,7 @@ async function start(ctx: Ctx, rerender: () => void, kind: OutboxKind, items: Ou
     startPolling(ctx, rerender);
     rerender();
   } catch (error) {
-    ctx.toast(arabic(error instanceof Error ? error.message : String(error)), "error");
+    ctx.toast(errorText(error), "error");
   }
 }
 
@@ -139,7 +125,7 @@ async function stop(ctx: Ctx, rerender: () => void): Promise<void> {
     await refresh(ctx, rerender);
     rerender();
   } catch (error) {
-    ctx.toast(arabic(error instanceof Error ? error.message : String(error)), "error");
+    ctx.toast(errorText(error), "error");
   }
 }
 
@@ -194,10 +180,10 @@ function jobCard(ctx: Ctx, rerender: () => void, kind: OutboxKind): HTMLElement 
       h("span", {}, `${fmtNumber(sent)} من ${fmtNumber(job.items.length)} انبعتوا${next}`),
       running ? h("button", { type: "button", class: "secondary", onclick: () => void stop(ctx, rerender) }, "إيقاف") : null,
     ),
-    job.error ? h("p", { class: "error-text" }, arabic(job.error)) : null,
+    job.error ? h("p", { class: "error-text" }, arabicError(job.error)) : null,
     h("ul", { class: "outbox-items" }, job.items.map((i) => h("li", {},
       badge(ITEM_STATE[i.state][0], ITEM_STATE[i.state][1]), " ", h("span", { dir: "auto" }, i.name || i.slug || i.memberId),
-      i.error ? h("small", { class: "muted" }, ` · ${i.error}`) : null,
+      i.error ? h("small", { class: "muted" }, ` · ${arabicError(i.error)}`) : null,
     ))),
   );
 }
@@ -289,7 +275,7 @@ function invitesCard(ctx: Ctx, rerender: () => void): HTMLElement {
       ctx.toast(`لقيت ${fmtNumber(result.candidates.length)} شخص بالصفحة، انضاف منهم ${fmtNumber(added.length)} جديد. روح للصفحة الجاية بالبحث واسحب مرة ثانية إذا بدك أكثر.`);
       rerender();
     } catch (error) {
-      ctx.toast(arabic(error instanceof Error ? error.message : String(error)), "error");
+      ctx.toast(errorText(error), "error");
     }
   };
   const send = (): void => {

@@ -6,6 +6,7 @@ import { STATUS_AR } from "../core/tracking";
 import type { Contact } from "../core/types";
 import { rowsCsv, rowsWorkbook, XLSX_TYPE, type Column } from "../io/excel";
 import { download, h } from "./dom";
+import { errorText } from "./errors";
 import type { Store } from "./store";
 
 export type ViewId = "home" | "data" | "contacts" | "companies" | "dashboard" | "opportunities" | "outreach" | "content" | "profile" | "ai" | "quality";
@@ -34,7 +35,7 @@ export function createBusy(host: HTMLElement, toast: Ctx["toast"]): Ctx["busy"] 
     try {
       return await task((text) => (status.textContent = text));
     } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), "error");
+      toast(errorText(error), "error");
       return undefined;
     } finally {
       overlay.remove();
@@ -128,7 +129,7 @@ export function aiErrorText(error: unknown, model: string): string {
   if (error instanceof OpenAiError && error.status === 401) return "مفتاح OpenAI غلط أو انلغى. حط مفتاح جديد من صفحة الذكاء الاصطناعي.";
   if (error instanceof OpenAiError && error.code === "insufficient_quota") return "رصيد OpenAI خلص. اشحن الحساب من platform.openai.com وجرّب مرة ثانية.";
   if (error instanceof OpenAiError && error.status === 429) return "OpenAI طلب نخفف الطلبات. استنى دقيقة وجرّب مرة ثانية.";
-  return error instanceof Error ? error.message : String(error);
+  return errorText(error);
 }
 
 export function keepFallbackModel(ctx: Ctx, from: string, cfg: AiConfig): void {

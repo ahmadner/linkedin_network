@@ -35,7 +35,7 @@ export function renderQuality(ctx: Ctx): HTMLElement {
         h("li", {}, "رقم الهاتف، عدد المتابعين، ملخص البروفايل، المهارات"),
         h("li", {}, "التاريخ الوظيفي ومدة البقاء بالشركة"),
         h("li", {}, "حجم الشركة وموقعها"),
-        h("li", {}, "الأشخاص الجدد من الـ Extension بيجوا بالـ Headline بس، فالشركة بتنستنتج منه إذا مكتوبة بصيغة \"Title at Company\""),
+        h("li", {}, "الأشخاص الجدد من الإضافة بيجوا بالـ Headline بس، فالشركة بتنستنتج منه إذا مكتوبة بصيغة \"Title at Company\""),
       ),
     ),
     flagged.length > 0 ? card(`سطور فيها ملاحظات (${fmtNumber(flagged.length)})`,

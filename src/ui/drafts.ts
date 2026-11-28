@@ -4,6 +4,7 @@ import { draftTitle, newDraft, newId, withVersion, type ContentIdea, type Conten
 import { base64Blob, prepareImage, storeImage } from "../io/images";
 import { aiErrorText, type Ctx } from "./context";
 import { fmtNumber } from "./dom";
+import { errorText } from "./errors";
 
 type Progress = (text: string) => void;
 
@@ -277,7 +278,7 @@ export async function autopilot(ctx: Ctx, cfg: AiConfig, options: AutopilotOptio
       await designImage(ctx, cfg, draft.id, {}, progress);
     } catch (error) {
       if (cfg.signal?.aborted) throw error;
-      imageError = error instanceof Error ? error.message : String(error);
+      imageError = errorText(error);
     }
   }
   let date = "";

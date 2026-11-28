@@ -15,6 +15,7 @@ import { emptyState, sanitizeTracking, stateFileName } from "../../io/state";
 import { cancelSync, clearExtensionData, collectResult, detectExtension, LOCAL_TOOL, startSync, syncStatus } from "../../linkedin/bridge";
 import { badge, card, type Ctx } from "../context";
 import { append, download, fmtNumber, h, pickFiles } from "../dom";
+import { arabicError, errorText } from "../errors";
 import { icon } from "../icons";
 
 let poller: ReturnType<typeof setInterval> | undefined;
@@ -62,7 +63,7 @@ async function importExportFiles(ctx: Ctx, files: File[]): Promise<void> {
 }
 
 async function finishSync(ctx: Ctx, job: JobStatus): Promise<void> {
-  const payload = await ctx.busy("نقل البيانات من الـ Extension…", (progress) => collectResult(job, progress));
+  const payload = await ctx.busy("نقل البيانات من الإضافة…", (progress) => collectResult(job, progress));
   if (!payload) return;
   let people = 0;
   let messages = 0;
@@ -92,13 +93,13 @@ function poll(ctx: Ctx, rerender: () => void): void {
         if (!job || job.state !== "running") {
           stopPolling();
           if (job?.state === "done") await finishSync(ctx, job);
-          else if (job?.state === "error") ctx.toast(job.error, "error");
+          else if (job?.state === "error") ctx.toast(arabicError(job.error), "error");
         }
         rerender();
       })
       .catch((error: unknown) => {
         stopPolling();
-        ctx.toast(error instanceof Error ? error.message : String(error), "error");
+        ctx.toast(errorText(error), "error");
       });
   }, 2000);
 }
@@ -109,7 +110,7 @@ function jobLine(job: JobStatus | null): HTMLElement | null {
   return h("div", { class: "job" },
     h("p", {}, badge(state, job.state === "error" ? "bad" : job.state === "done" ? "good" : ""), " ", PHASE_AR[job.phase] ?? job.phase),
     h("p", { class: "muted" }, `أشخاص: ${fmtNumber(job.counts.connections)} · محادثات: ${fmtNumber(job.counts.conversations)} · رسائل: ${fmtNumber(job.counts.messages)}`),
-    job.error ? h("p", { class: "error-text" }, job.error) : null,
+    job.error ? h("p", { class: "error-text" }, arabicError(job.error)) : null,
     job.notes.length > 0 ? h("ul", { class: "notes" }, job.notes.map((n) => h("li", {}, n))) : null,
   );
 }
@@ -129,7 +130,7 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
       poll(ctx, rerender);
       rerender();
     } catch (error) {
-      ctx.toast(error instanceof Error ? error.message : String(error), "error");
+      ctx.toast(errorText(error), "error");
     }
   };
 
@@ -139,7 +140,7 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
   photosToggle.addEventListener("change", () => (refreshPhotos = photosToggle.checked));
 
   append(body, [
-    h("p", {}, installed ? badge(`الـ Extension مركّب (v${extensionVersion})`, "good") : badge("الـ Extension مش مركّب أو مش مسموح لهاد الموقع", "bad")),
+    h("p", {}, installed ? badge(`الإضافة مركّبة (v${extensionVersion})`, "good") : badge("الإضافة مش مركّبة أو مش مسموح لها بهاد الموقع", "bad")),
     h("p", { class: "muted" }, sync.lastSyncAt
       ? `آخر مزامنة: ${sync.lastSyncAt.slice(0, 16).replace("T", " ")}. المزامنة الجاية بتسحب بس الأشخاص والرسائل الأحدث من هيك.`
       : "ما في مزامنة لسا. أول مزامنة بتسحب كل شي، فالأفضل ترفع الـ Export أول."),
@@ -148,7 +149,7 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
     h("div", { class: "row" },
       h("button", { type: "button", disabled: !installed || running, onclick: () => void start() }, "مزامنة الآن"),
       running ? h("button", { type: "button", class: "secondary", onclick: () => void cancelSync().then(rerender) }, "إيقاف") : null,
-      LOCAL_TOOL ? null : h("a", { class: "button secondary", href: "./linkedin-network-extension.zip", download: true }, "تحميل الـ Extension"),
+      LOCAL_TOOL ? null : h("a", { class: "button secondary", href: "./linkedin-network-extension.zip", download: true }, "تحميل الإضافة"),
     ),
     jobLine(lastJob),
     installed ? null : h("details", { class: "help" },
@@ -156,15 +157,15 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
       h("ol", {},
         LOCAL_TOOL
           ? h("li", {}, "شغّل npm run extension:local بمجلد المشروع.")
-          : h("li", {}, "حمّل ملف الـ Extension وفك الضغط عنه بمجلد ثابت."),
+          : h("li", {}, "حمّل ملف الإضافة وفك الضغط عنه بمجلد ثابت."),
         h("li", {}, "افتح chrome://extensions وفعّل Developer mode."),
         h("li", {}, LOCAL_TOOL ? "اضغط Load unpacked واختار المجلد dist-extension/local." : "اضغط Load unpacked واختار المجلد."),
         h("li", {}, "تأكد إنك مسجّل دخول على linkedin.com بنفس المتصفح، وارجع حدّث هاي الصفحة."),
       ),
     ),
-    h("p", { class: "muted small" }, "الـ Extension بيقرا بياناتك انت بس، بجلستك، ببطء وعلى دفعات. ما بيعدّل ولا بيبعت أي شي على LinkedIn. بس استخدام أدوات آلية تقنيًا ضد شروط LinkedIn، فالخطر صغير بس مش صفر."),
+    h("p", { class: "muted small" }, "المزامنة بتقرا بياناتك إنت بس، بجلستك، ببطء وعلى دفعات، وما بتعدّل إشي. والإضافة ما بتبعت رسائل أو طلبات تواصل إلا لما توافق عليها إنت من صفحة الإرسال. بس استخدام أدوات آلية تقنيًا ضد شروط LinkedIn، فالخطر صغير بس مش صفر."),
   ]);
-  return card(ctx.store.hasData ? "المزامنة من LinkedIn" : "٢. تحديث مباشر من LinkedIn (Chrome Extension)", body);
+  return card(ctx.store.hasData ? "المزامنة من LinkedIn" : "٢. تحديث مباشر من LinkedIn (إضافة Chrome)", body);
 }
 
 function stats(ctx: Ctx): HTMLElement {
