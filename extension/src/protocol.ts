@@ -191,3 +191,23 @@ export interface ErrorResponse {
   ok: false;
   error: string;
 }
+
+export const PAGE_CHANNEL = "lnt-page";
+export const EXTENSION_CHANNEL = "lnt-extension";
+
+export interface PageEnvelope {
+  channel: typeof PAGE_CHANNEL;
+  id: number;
+  request: Request;
+}
+
+export interface ExtensionEnvelope {
+  channel: typeof EXTENSION_CHANNEL;
+  id: number;
+  response: unknown;
+}
+
+export interface BridgedRequest {
+  bridge: true;
+  request: Request;
+}

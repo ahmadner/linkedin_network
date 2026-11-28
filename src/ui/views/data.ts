@@ -12,7 +12,7 @@ import { forgetAllImageUrls } from "../../io/images";
 import { readTrackingWorkbook, trackingTemplateWorkbook, XLSX_TYPE } from "../../io/excel";
 import { LOG_FIELDS, logTemplateCsv, parseLogCsv, parseProfileJson, PROFILE_FIELDS, profileTemplateJson, TRACKING_FIELDS, type FieldGuide, type ImportIssue } from "../../io/imports";
 import { emptyState, sanitizeTracking, stateFileName } from "../../io/state";
-import { cancelSync, clearExtensionData, collectResult, detectExtension, LOCAL_TOOL, startSync, syncStatus } from "../../linkedin/bridge";
+import { cancelSync, clearExtensionData, collectResult, detectExtension, IS_FIREFOX, LOCAL_TOOL, startSync, syncStatus } from "../../linkedin/bridge";
 import { badge, card, type Ctx } from "../context";
 import { confirmDialog } from "../confirm";
 import { append, download, fmtNumber, h, pickFiles } from "../dom";
@@ -116,6 +116,39 @@ function jobLine(job: JobStatus | null): HTMLElement | null {
   );
 }
 
+type Browser = "chrome" | "firefox";
+
+const BROWSERS: Browser[] = IS_FIREFOX ? ["firefox", "chrome"] : ["chrome", "firefox"];
+const BROWSER_NAME: Record<Browser, string> = { chrome: "Chrome", firefox: "Firefox" };
+const DOWNLOADS: Record<Browser, string> = { chrome: "./linkedin-network-extension.zip", firefox: "./linkedin-network-extension-firefox.zip" };
+
+function code(text: string): HTMLElement {
+  return h("code", { dir: "ltr" }, text);
+}
+
+function installSteps(browser: Browser): HTMLElement {
+  const signedIn = h("li", {}, "تأكد إنك مسجّل دخول على linkedin.com بنفس المتصفح، وارجع حدّث هاي الصفحة.");
+  if (browser === "chrome") {
+    return h("ol", {},
+      h("li", {}, ...(LOCAL_TOOL ? ["شغّل ", code("npm run extension:local"), " بمجلد المشروع."] : ["حمّل ملف الإضافة لـ Chrome وفك الضغط عنه بمجلد ثابت."])),
+      h("li", {}, "افتح ", code("chrome://extensions"), " وفعّل Developer mode."),
+      h("li", {}, ...(LOCAL_TOOL ? ["اضغط Load unpacked واختار المجلد ", code("dist-extension/local"), "."] : ["اضغط Load unpacked واختار المجلد."])),
+      signedIn,
+      h("li", { class: "muted" }, "بتشتغل كمان على Edge و Brave وأي متصفح مبني على Chromium."),
+    );
+  }
+  return h("div", {},
+    h("ol", {},
+      h("li", {}, ...(LOCAL_TOOL ? ["شغّل ", code("npm run extension:local"), " بمجلد المشروع."] : ["حمّل ملف الإضافة لـ Firefox. ما في داعي تفك الضغط."])),
+      h("li", {}, "افتح ", code("about:debugging#/runtime/this-firefox"), " بشريط العنوان."),
+      h("li", {}, ...(LOCAL_TOOL ? ["اضغط Load Temporary Add-on واختار الملف ", code("dist-extension/local-firefox/manifest.json"), "."] : ["اضغط Load Temporary Add-on واختار ملف الـ zip اللي نزّلته."])),
+      h("li", {}, "افتح ", code("about:addons"), "، اختار LinkedIn Network Sync، ومن Permissions تأكد إنه مسموح له يوصل لـ linkedin.com ولهاد الموقع."),
+      signedIn,
+    ),
+    h("p", { class: "muted small" }, "بدها Firefox 128 أو أحدث. فايرفوكس بيشيل الإضافة المؤقتة لما تسكّره، فبتعيد الخطوة 3 بعد كل تشغيل. البيانات اللي نقلتها للموقع بتضل، بس الإضافة بتنسى عدّاد الإرسال اليومي، فانتبه ما تتعدى الحد بنفس اليوم. للتركيب الدائم، الإضافة لازم تكون موقّعة من Mozilla، أو بتستخدم Firefox Developer Edition وبتطفي xpinstall.signatures.required من about:config."),
+  );
+}
+
 function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
   const { sync } = ctx.store.state.dataset;
   const body = h("div", {});
@@ -150,23 +183,16 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
     h("div", { class: "row" },
       h("button", { type: "button", disabled: !installed || running, onclick: () => void start() }, "مزامنة الآن"),
       running ? h("button", { type: "button", class: "secondary", onclick: () => void cancelSync().then(rerender) }, "إيقاف") : null,
-      LOCAL_TOOL ? null : h("a", { class: "button secondary", href: "./linkedin-network-extension.zip", download: true }, "تحميل الإضافة"),
+      ...(LOCAL_TOOL ? [] : BROWSERS.map((b) => h("a", { class: "button secondary", href: DOWNLOADS[b], download: true }, icon("download"), `تحميل لـ ${BROWSER_NAME[b]}`))),
     ),
     jobLine(lastJob),
-    installed ? null : h("details", { class: "help" },
-      h("summary", {}, "طريقة التركيب (مرة وحدة)"),
-      h("ol", {},
-        LOCAL_TOOL
-          ? h("li", {}, "شغّل npm run extension:local بمجلد المشروع.")
-          : h("li", {}, "حمّل ملف الإضافة وفك الضغط عنه بمجلد ثابت."),
-        h("li", {}, "افتح chrome://extensions وفعّل Developer mode."),
-        h("li", {}, LOCAL_TOOL ? "اضغط Load unpacked واختار المجلد dist-extension/local." : "اضغط Load unpacked واختار المجلد."),
-        h("li", {}, "تأكد إنك مسجّل دخول على linkedin.com بنفس المتصفح، وارجع حدّث هاي الصفحة."),
-      ),
-    ),
+    ...BROWSERS.map((b, i) => h("details", { class: "help", open: !installed && i === 0 },
+      h("summary", {}, `طريقة التركيب على ${BROWSER_NAME[b]}`),
+      installSteps(b),
+    )),
     h("p", { class: "muted small" }, "المزامنة بتقرا بياناتك إنت بس، بجلستك، ببطء وعلى دفعات، وما بتعدّل إشي. والإضافة ما بتبعت رسائل أو طلبات تواصل إلا لما توافق عليها إنت من صفحة الإرسال. بس استخدام أدوات آلية تقنيًا ضد شروط LinkedIn، فالخطر صغير بس مش صفر."),
   ]);
-  return card(ctx.store.hasData ? "المزامنة من LinkedIn" : "٢. تحديث مباشر من LinkedIn (إضافة Chrome)", body);
+  return card(ctx.store.hasData ? "المزامنة من LinkedIn" : "٢. تحديث مباشر من LinkedIn (إضافة المتصفح)", body);
 }
 
 function stats(ctx: Ctx): HTMLElement {

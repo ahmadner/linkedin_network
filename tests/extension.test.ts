@@ -155,6 +155,13 @@ describe("extension targets", () => {
     expect(targets.local.id).not.toBe(targets.production.id);
   });
 
+  it("gives each target its own Firefox add-on id", () => {
+    const pattern = /^[a-z0-9-]+@[a-z0-9.-]+$/;
+    expect(targets.production.geckoId).toMatch(pattern);
+    expect(targets.local.geckoId).toMatch(pattern);
+    expect(targets.local.geckoId).not.toBe(targets.production.geckoId);
+  });
+
   it("keeps local hosts out of the production target", () => {
     expect(new URL(targets.production.toolUrl).protocol).toBe("https:");
     expect(targets.production.origins).toEqual([]);
