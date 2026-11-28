@@ -373,6 +373,28 @@ input.short { inline-size: 8rem; }
 .thread li.out { justify-self: end; background: var(--accent-soft); }
 .thread-meta { color: var(--muted); font-size: var(--fs-2xs); }
 .thread-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.inbox-sync { display: flex; justify-content: space-between; align-items: center; gap: var(--space-5); flex-wrap: wrap; }
+.inbox-sync .status-ext { flex: 1 1 18rem; flex-wrap: nowrap; }
+.inbox-sync .job { flex: 1 1 100%; margin-block-start: 0; }
+.inbox { list-style: none; padding: 0; margin: var(--space-3) 0 0; display: grid; gap: var(--space-3); }
+.inbox-item { display: grid; gap: var(--space-2); padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-inline-start: 3px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); min-inline-size: 0; }
+.inbox-item.out { background: var(--surface-2); }
+.inbox-item.awaiting_me { border-inline-start-color: var(--bad); }
+.inbox-item.awaiting_them { border-inline-start-color: var(--warn); }
+.inbox-item.replied, .inbox-item.answered { border-inline-start-color: var(--good); }
+.inbox-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.inbox-head .person { flex: 1 1 14rem; }
+.inbox-people { font-weight: 600; overflow-wrap: anywhere; }
+.inbox-name { font: inherit; font-weight: 600; padding: 0; color: inherit; text-align: start; text-decoration: none; }
+.inbox-item time { unicode-bidi: isolate; }
+button.inbox-name, a.inbox-name { color: var(--accent); text-decoration: none; }
+button.inbox-name:hover, a.inbox-name:hover { text-decoration: underline; }
+.inbox-badges { display: inline-flex; gap: var(--space-2); flex-wrap: wrap; }
+.inbox-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-sm); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; line-clamp: 6; overflow: hidden; }
+.inbox-text.open { display: block; -webkit-line-clamp: unset; line-clamp: none; }
+.inbox-more { justify-self: start; }
+.inbox-open { display: inline-flex; align-items: center; gap: var(--space-1); justify-self: start; }
+.inbox-open .icon { inline-size: .9rem; block-size: .9rem; }
 .msg { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-5); display: grid; gap: var(--space-2); }
 .msg-head { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
 .msg pre { white-space: pre-wrap; font: inherit; margin: 0; font-size: var(--fs-md); overflow-wrap: anywhere; }

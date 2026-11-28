@@ -1,7 +1,5 @@
-import type { JobStatus } from "../../../extension/src/protocol";
 import { mergeExportPosts } from "../../core/content";
-import { mergeExport, mergeSync } from "../../core/dataset";
-import { cleanProfileUrl } from "../../core/text";
+import { mergeExport } from "../../core/dataset";
 import { sanitizeProfile } from "../../core/profile";
 import { profileGaps } from "../../core/messages";
 import type { LogEntry, MeProfile } from "../../core/types";
@@ -12,30 +10,17 @@ import { forgetAllImageUrls } from "../../io/images";
 import { readTrackingWorkbook, trackingTemplateWorkbook, XLSX_TYPE } from "../../io/excel";
 import { LOG_FIELDS, logTemplateCsv, parseLogCsv, parseProfileJson, PROFILE_FIELDS, profileTemplateJson, TRACKING_FIELDS, type FieldGuide, type ImportIssue } from "../../io/imports";
 import { emptyState, sanitizeTracking, stateFileName } from "../../io/state";
-import { cancelSync, clearExtensionData, collectResult, detectExtension, IS_FIREFOX, LOCAL_TOOL, startSync, syncStatus } from "../../linkedin/bridge";
+import { IS_FIREFOX, LOCAL_TOOL } from "../../linkedin/bridge";
 import { badge, card, type Ctx } from "../context";
 import { confirmDialog } from "../confirm";
 import { append, download, fmtNumber, h, pickFiles } from "../dom";
-import { arabicError, errorText } from "../errors";
 import { icon } from "../icons";
+import { detectSync, linkedinSync, runSync, stopSync, syncJobLine, syncRunning } from "../linkedinSync";
 
-let poller: ReturnType<typeof setInterval> | undefined;
-let lastJob: JobStatus | null = null;
-let extensionVersion = "";
 let includeMessages = true;
 let refreshPhotos = false;
-let detectionStarted = false;
+let firefoxChecked = false;
 let firefoxSigned = false;
-
-const PHASE_AR: Record<string, string> = {
-  starting: "تجهيز",
-  profile: "قراءة بروفايلك",
-  connections: "سحب الأشخاص",
-  discovery: "تجهيز الرسائل",
-  conversations: "سحب المحادثات",
-  messages: "سحب الرسائل",
-  finished: "انتهى",
-};
 
 function fillEmptyProfile(me: MeProfile, suggested: Partial<MeProfile>): MeProfile {
   const next = { ...me };
@@ -62,59 +47,6 @@ async function importExportFiles(ctx: Ctx, files: File[]): Promise<void> {
   });
   const posts = imported.posts.length > 0 ? `، ${fmtNumber(imported.posts.length)} منشور` : "";
   ctx.toast(`تم: ${fmtNumber(imported.connections.length)} شخص، ${fmtNumber(imported.messages.length)} رسالة، ${fmtNumber(imported.invitations.length)} دعوة${posts}`);
-}
-
-async function finishSync(ctx: Ctx, job: JobStatus): Promise<void> {
-  const payload = await ctx.busy("نقل البيانات من الإضافة…", (progress) => collectResult(job, progress));
-  if (!payload) return;
-  let people = 0;
-  let messages = 0;
-  ctx.store.update((s) => {
-    const known = new Set(s.dataset.connections.map((c) => cleanProfileUrl(c.profileUrl).slug).filter(Boolean));
-    const before = s.dataset.messages.length;
-    s.dataset = mergeSync(s.dataset, payload);
-    people = payload.connections.filter((c) => !known.has(c.slug)).length;
-    messages = s.dataset.messages.length - before;
-  });
-  await clearExtensionData().catch(() => undefined);
-  ctx.toast(`تمت المزامنة: ${fmtNumber(people)} شخص جديد، ${fmtNumber(payload.connections.length - people)} تحدّثت بياناتهم، ${fmtNumber(messages)} رسالة جديدة`);
-  for (const n of payload.notes) ctx.toast(n);
-}
-
-function stopPolling(): void {
-  clearInterval(poller);
-  poller = undefined;
-}
-
-function poll(ctx: Ctx, rerender: () => void): void {
-  stopPolling();
-  poller = setInterval(() => {
-    syncStatus()
-      .then(async (job) => {
-        lastJob = job;
-        if (!job || job.state !== "running") {
-          stopPolling();
-          if (job?.state === "done") await finishSync(ctx, job);
-          else if (job?.state === "error") ctx.toast(arabicError(job.error), "error");
-        }
-        rerender();
-      })
-      .catch((error: unknown) => {
-        stopPolling();
-        ctx.toast(errorText(error), "error");
-      });
-  }, 2000);
-}
-
-function jobLine(job: JobStatus | null): HTMLElement | null {
-  if (!job) return null;
-  const state = { running: "شغّالة", done: "خلصت", error: "وقفت بخطأ", cancelled: "انلغت" }[job.state];
-  return h("div", { class: "job" },
-    h("p", {}, badge(state, job.state === "error" ? "bad" : job.state === "done" ? "good" : ""), " ", PHASE_AR[job.phase] ?? job.phase),
-    h("p", { class: "muted" }, `أشخاص: ${fmtNumber(job.counts.connections)} · محادثات: ${fmtNumber(job.counts.conversations)} · رسائل: ${fmtNumber(job.counts.messages)}`),
-    job.error ? h("p", { class: "error-text" }, arabicError(job.error)) : null,
-    job.notes.length > 0 ? h("ul", { class: "notes" }, job.notes.map((n) => h("li", {}, n))) : null,
-  );
 }
 
 type Browser = "chrome" | "firefox";
@@ -181,21 +113,9 @@ function installSteps(browser: Browser): HTMLElement {
 function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
   const { sync } = ctx.store.state.dataset;
   const body = h("div", {});
-  const installed = extensionVersion !== "";
-  const running = lastJob?.state === "running";
-
-  const start = async (): Promise<void> => {
-    try {
-      lastJob = await startSync(
-        { newestConnectionAt: sync.newestConnectionAt, newestMessageAt: sync.newestMessageAt },
-        { messages: includeMessages, photos: refreshPhotos, maxConversations: 3000 },
-      );
-      poll(ctx, rerender);
-      rerender();
-    } catch (error) {
-      ctx.toast(errorText(error), "error");
-    }
-  };
+  const installed = linkedinSync.state === "ready";
+  const running = syncRunning();
+  const start = (): Promise<void> => runSync(ctx, rerender, { messages: includeMessages, photos: refreshPhotos, maxConversations: 3000 });
 
   const messagesToggle = h("input", { type: "checkbox", checked: includeMessages });
   messagesToggle.addEventListener("change", () => (includeMessages = messagesToggle.checked));
@@ -203,7 +123,7 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
   photosToggle.addEventListener("change", () => (refreshPhotos = photosToggle.checked));
 
   append(body, [
-    h("p", {}, installed ? badge(`الإضافة مركّبة (v${extensionVersion})`, "good") : badge("الإضافة مش مركّبة أو مش مسموح لها بهاد الموقع", "bad")),
+    h("p", {}, installed ? badge(`الإضافة مركّبة (v${linkedinSync.version})`, "good") : badge("الإضافة مش مركّبة أو مش مسموح لها بهاد الموقع", "bad")),
     h("p", { class: "muted" }, sync.lastSyncAt
       ? `آخر مزامنة: ${sync.lastSyncAt.slice(0, 16).replace("T", " ")}. المزامنة الجاية بتسحب بس الأشخاص والرسائل الأحدث من هيك.`
       : "ما في مزامنة لسا. أول مزامنة بتسحب كل شي، فالأفضل ترفع الـ Export أول."),
@@ -211,13 +131,13 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
     h("label", { class: "check" }, photosToggle, " حدّث بيانات وصور كل الأشخاص (بيمر على كل شبكتك، أبطأ)"),
     h("div", { class: "row" },
       h("button", { type: "button", disabled: !installed || running, onclick: () => void start() }, "مزامنة الآن"),
-      running ? h("button", { type: "button", class: "secondary", onclick: () => void cancelSync().then(rerender) }, "إيقاف") : null,
+      running ? h("button", { type: "button", class: "secondary", onclick: () => void stopSync(ctx, rerender) }, "إيقاف") : null,
       ...(LOCAL_TOOL ? [] : BROWSERS.flatMap((b) => [
         h("a", { class: "button secondary", href: DOWNLOADS[b], download: !(b === "firefox" && firefoxSigned) }, icon("download"), b === "firefox" ? "تحميل لـ Firefox (.xpi)" : `تحميل لـ ${BROWSER_NAME[b]}`),
         b === "firefox" ? h("a", { class: "button secondary", href: FIREFOX_FOLDER, download: true }, icon("download"), "ملفات Firefox (zip)") : null,
       ])),
     ),
-    jobLine(lastJob),
+    syncJobLine(linkedinSync.job),
     ...BROWSERS.map((b, i) => h("details", { class: "help", open: !installed && i === 0 },
       h("summary", {}, `طريقة التركيب على ${BROWSER_NAME[b]}`),
       installSteps(b),
@@ -392,25 +312,16 @@ function importCard(ctx: Ctx, rerender: () => void): HTMLElement {
 }
 
 export function renderData(ctx: Ctx, rerender: () => void): HTMLElement {
-  if (!detectionStarted) {
-    detectionStarted = true;
-    if (!LOCAL_TOOL) {
-      void fetch("./extension.json", { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((info: { firefox?: { signed?: unknown } } | null) => {
-          firefoxSigned = info?.firefox?.signed === true;
-          if (firefoxSigned) rerender();
-        })
-        .catch(() => undefined);
-    }
-    void detectExtension().then((hello) => {
-      if (!hello) return;
-      extensionVersion = hello.version;
-      lastJob = hello.job;
-      if (hello.job?.state === "running") poll(ctx, rerender);
-      else if (hello.job?.state === "done" && hello.job.finishedAt > ctx.store.state.dataset.sync.lastSyncAt) void finishSync(ctx, hello.job).then(rerender);
-      rerender();
-    });
+  void detectSync(ctx, rerender);
+  if (!firefoxChecked && !LOCAL_TOOL) {
+    firefoxChecked = true;
+    void fetch("./extension.json", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((info: { firefox?: { signed?: unknown } } | null) => {
+        firefoxSigned = info?.firefox?.signed === true;
+        if (firefoxSigned) rerender();
+      })
+      .catch(() => undefined);
   }
 
   const dropZone = h("div", { class: "drop", tabindex: 0, role: "button" }, h("strong", {}, "اسحب ملف الـ Export هون أو اضغط للاختيار"), h("span", { class: "muted" }, "ملف .zip كامل، أو Connections.csv و messages.csv و Invitations.csv"));
