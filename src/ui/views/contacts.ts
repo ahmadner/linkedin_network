@@ -10,7 +10,7 @@ import { TEMPLATE_IDS, TEMPLATE_LABEL, TEMPLATES_WITH_JOB, TemplateBuilder, type
 import type { Contact, ConversationAnalysis, MessageSet, StoredMessage, Tracking } from "../../core/types";
 import { CONTACT_EXPORT_COLUMNS } from "../../io/excel";
 import { ago, avatar, awaitingMe, badge, exportLinks, linkedinLinks, MODE_AR, noData, runAi, STATUS_AR, statusBadge, STATUSES, type Ctx } from "../context";
-import { copyText, field, fmtNumber, h, replace, select, textArea, textInput } from "../dom";
+import { copyText, field, fmtNumber, h, replace, select, tabList, tabPanel, textArea, textInput } from "../dom";
 import { icon } from "../icons";
 import { queueMessages } from "./outreach";
 
@@ -384,10 +384,9 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
         c.slug && primaryText.trim() ? h("button", { type: "button", class: "small", onclick: () => queueMessages(ctx, [{ contact: c, text: primaryText }]) }, icon("send"), c.mode === "nudge" ? "جهّز متابعة" : "جهّز رسالة") : null,
         linkedinLinks(ctx, c),
       ),
-      h("div", { class: "drawer-tabs", role: "tablist" }, tabs.map(([id, label]) =>
-        h("button", { type: "button", role: "tab", "aria-selected": String(view.tab === id), class: view.tab === id ? "active" : "", onclick: () => { view.tab = id; rerender(); } }, label))),
+      tabList("drawer", "تفاصيل الشخص", tabs.map(([id, label]) => ({ id, label })), view.tab, (id) => { view.tab = id as typeof view.tab; rerender(); }, { class: "drawer-tabs" }),
     ),
-    h("div", { class: "drawer-body", role: "tabpanel" }, body),
+    tabPanel("drawer", view.tab, "drawer-body", body),
   );
   requestAnimationFrame(() => {
     if (!panel.contains(document.activeElement)) panel.focus({ preventScroll: true });

@@ -161,3 +161,40 @@ export function select(options: Array<[string, string]>, value: string, onChange
 export function fmtNumber(n: number): string {
   return n.toLocaleString("en-US");
 }
+
+export interface TabItem {
+  id: string;
+  label: Child | Child[];
+}
+
+export function tabList(prefix: string, label: string, items: TabItem[], current: string, onSelect: (id: string) => void, attrs: Attrs = {}): HTMLDivElement {
+  const tabId = (id: string): string => `${prefix}-tab-${id}`;
+  const choose = (id: string): void => {
+    onSelect(id);
+    requestAnimationFrame(() => document.getElementById(tabId(id))?.focus());
+  };
+  const list = h("div", { ...attrs, role: "tablist", "aria-label": label }, items.map((item) => h("button", {
+    type: "button",
+    role: "tab",
+    id: tabId(item.id),
+    "aria-selected": String(item.id === current),
+    "aria-controls": `${prefix}-panel`,
+    tabindex: item.id === current ? 0 : -1,
+    class: item.id === current ? "active" : null,
+    onclick: () => choose(item.id),
+  }, item.label)));
+  list.addEventListener("keydown", (e) => {
+    const index = items.findIndex((item) => item.id === current);
+    const rtl = getComputedStyle(list).direction === "rtl";
+    const step = e.key === "ArrowRight" ? (rtl ? -1 : 1) : e.key === "ArrowLeft" ? (rtl ? 1 : -1) : 0;
+    const next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : step ? (index + step + items.length) % items.length : -1;
+    if (next < 0 || !items[next]) return;
+    e.preventDefault();
+    choose(items[next].id);
+  });
+  return list;
+}
+
+export function tabPanel(prefix: string, current: string, className: string, ...children: Array<Child | Child[]>): HTMLDivElement {
+  return h("div", { role: "tabpanel", id: `${prefix}-panel`, "aria-labelledby": `${prefix}-tab-${current}`, tabindex: 0, class: className }, ...children);
+}

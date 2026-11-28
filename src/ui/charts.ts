@@ -44,7 +44,7 @@ export function columnChart(title: string, series: ColumnSeries[], points: Colum
   const legend = series.length > 1
     ? h("div", { class: "legend" }, series.map((s) => h("span", {}, h("i", { class: `swatch ${s.className}` }), s.name)))
     : null;
-  return h("div", { class: "chart-wrap" }, legend, h("div", { class: "chart-scroll" }, chart));
+  return h("div", { class: "chart-wrap" }, legend, h("div", { class: "chart-scroll", tabindex: 0, role: "region", "aria-label": title }, chart));
 }
 
 export function barFill(ratio: number): HTMLElement {

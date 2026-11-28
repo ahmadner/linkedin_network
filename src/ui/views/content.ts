@@ -9,7 +9,7 @@ import {
 import { barFill, columnChart } from "../charts";
 import { ago, badge, card, emptyState, kpi, runAi, type Ctx } from "../context";
 import { addDraft, autopilot, findDraft, ideaDraft, nextDates, saveSeries, seriesDrafts, seriesLabel, todayIso, writeDraft, writeIdeas, writeSeries, type BatchResult } from "../drafts";
-import { field, fmtNumber, h, numberInput, select, textArea, textInput } from "../dom";
+import { field, fmtNumber, h, numberInput, select, tabList, tabPanel, textArea, textInput } from "../dom";
 import { icon } from "../icons";
 import { imageThumb, renderEditor } from "./editor";
 import { postsSyncCard } from "./postsSync";
@@ -806,12 +806,12 @@ export function renderContent(ctx: Ctx): HTMLElement {
   if (ui.draftId && findDraft(ctx, ui.draftId)) return renderEditor(ctx, ui.draftId, () => closeDraft(ctx), (id) => openDraft(ctx, id));
   ui.draftId = "";
   const tabs = h("div", { class: "content-head" },
-    h("div", { class: "presets content-tabs", role: "tablist", "aria-label": "أقسام المحتوى" }, TABS.map(([id, label]) => {
+    tabList("content", "أقسام المحتوى", TABS.map(([id, label]) => {
       const n = tabCount(ctx, id);
-      return h("button", { type: "button", role: "tab", "aria-selected": String(ui.tab === id), "aria-pressed": String(ui.tab === id), onclick: () => switchTab(ctx, id) }, label, n ? h("span", { class: "preset-count" }, n) : null);
-    })),
+      return { id, label: [label, n ? h("span", { class: "preset-count" }, n) : null] };
+    }), ui.tab, (id) => switchTab(ctx, id as Tab), { class: "presets content-tabs" }),
     h("button", { type: "button", onclick: () => createDraft(ctx) }, icon("pen"), "منشور جديد"),
   );
   const body = ui.tab === "board" ? renderBoard(ctx) : ui.tab === "series" ? renderSeries(ctx) : ui.tab === "calendar" ? renderCalendar(ctx) : ui.tab === "posts" ? renderPosts(ctx) : ui.tab === "settings" ? renderSettings(ctx) : renderOverview(ctx);
-  return h("div", { class: "view" }, tabs, body);
+  return h("div", { class: "view" }, tabs, tabPanel("content", ui.tab, "tab-panel", body));
 }
