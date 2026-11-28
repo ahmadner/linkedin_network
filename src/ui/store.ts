@@ -31,6 +31,7 @@ export class Store {
       overrides: this.current.overrides,
       tracking: this.current.tracking,
       log: this.current.log,
+      inbox: this.current.inbox,
       aiMessages: this.current.ai.messages,
       aiClassifications: this.current.ai.classifications,
       today: todayIso(),

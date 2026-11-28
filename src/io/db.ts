@@ -6,7 +6,7 @@ const STATE = "state";
 const IMAGES = "images";
 const LEGACY_KEY = "current";
 const PART_PREFIX = "part:";
-const PARTS = ["profile", "overrides", "dataset", "tracking", "log", "ai", "content"] as const satisfies ReadonlyArray<keyof AppState>;
+const PARTS = ["profile", "overrides", "dataset", "tracking", "log", "inbox", "ai", "content"] as const satisfies ReadonlyArray<keyof AppState>;
 
 type StoreName = typeof STATE | typeof IMAGES;
 

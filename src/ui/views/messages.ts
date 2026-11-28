@@ -1,10 +1,10 @@
 import { conversationIndex } from "../../core/conversations";
-import { conversations, MESSAGE_STATUS_LABEL, type Conversation, type ConversationStatus, type InboxItem } from "../../core/inbox";
+import { activeOverride, conversations, CONVERSATION_STATUS_LABEL, CONVERSATION_STATUSES, MESSAGE_STATUS_LABEL, statusOf, type Conversation, type ConversationStatus, type InboxItem } from "../../core/inbox";
 import { personKey } from "../../core/text";
 import type { Contact, Party } from "../../core/types";
 import { INBOX_COLUMNS } from "../../io/excel";
 import { analysisResult, runAnalysis, textDir, type AnalysisTarget } from "../analysis";
-import { avatar, badge, emptyState, exportLinks, type Ctx } from "../context";
+import { avatar, emptyState, exportLinks, type Ctx } from "../context";
 import { fmtNumber, h, replace } from "../dom";
 import { icon } from "../icons";
 import { autoSyncStatus } from "../autoSync";
@@ -16,7 +16,7 @@ const THREAD_STEP = 60;
 
 type Filter = "" | ConversationStatus;
 
-const FILTERS: Array<[Filter, string]> = [["", "الكل"], ["awaiting_me", "بانتظار ردّك"], ["awaiting_them", "بانتظار ردّهم"]];
+const FILTERS: Array<[Filter, string]> = [["", "الكل"], ...CONVERSATION_STATUSES.map((s): [Filter, string] => [s, CONVERSATION_STATUS_LABEL[s]])];
 
 const view = { q: "", filter: "" as Filter, selected: "", shown: LIST_STEP, older: 0, scrolled: "" };
 
@@ -84,13 +84,43 @@ function face(ctx: Ctx, conv: Conversation, size: "small" | "large" = "small"): 
   return avatar(ctx, { slug: p.slug, fullName: nameOf(p) }, size);
 }
 
+function setStatus(ctx: Ctx, all: Conversation[], conv: Conversation, status: ConversationStatus | null): void {
+  ctx.store.update((s) => {
+    const live = new Set(all.filter((c) => activeOverride(c, s.inbox)).map((c) => c.key));
+    for (const key of Object.keys(s.inbox)) if (!live.has(key)) delete s.inbox[key];
+    if (status && status !== conv.status) s.inbox[conv.key] = { status, at: conv.last.at };
+    else delete s.inbox[conv.key];
+  });
+}
+
+function statusPicker(ctx: Ctx, all: Conversation[], conv: Conversation): HTMLElement {
+  const manual = activeOverride(conv, ctx.store.state.inbox);
+  const current = manual?.status ?? conv.status;
+  return h("div", { class: "chat-status" },
+    h("span", { class: "muted small" }, "حالة المحادثة:"),
+    h("div", { class: "segmented", role: "group", "aria-label": "حالة المحادثة" }, CONVERSATION_STATUSES.map((s) =>
+      h("button", { type: "button", class: `small status-${s}`, "aria-pressed": String(current === s), onclick: () => setStatus(ctx, all, conv, s) }, CONVERSATION_STATUS_LABEL[s]))),
+    manual
+      ? h("span", { class: "row tight" }, h("span", { class: "muted small" }, "يدوي، لحد ما توصل رسالة جديدة"), h("button", { type: "button", class: "link small", onclick: () => setStatus(ctx, all, conv, null) }, "رجّعها تلقائي"))
+      : h("span", { class: "muted small" }, "تلقائي من آخر رسالة"),
+  );
+}
+
+function rowState(conv: Conversation, status: ConversationStatus, manual: boolean): HTMLElement {
+  if (status === "awaiting_me" && conv.pending > 0 && !manual) return h("span", { class: "nav-count hot", title: "رسائل بانتظار ردّك", "aria-label": `${fmtNumber(conv.pending)} بانتظار ردّك` }, fmtNumber(conv.pending));
+  return h("span", { class: `conv-state ${status}` }, manual ? `${CONVERSATION_STATUS_LABEL[status]} ✎` : CONVERSATION_STATUS_LABEL[status]);
+}
+
 function conversationRow(ctx: Ctx, conv: Conversation, rerender: () => void): HTMLElement {
+  const overrides = ctx.store.state.inbox;
+  const status = statusOf(conv, overrides);
+  const manual = activeOverride(conv, overrides) !== null;
   const preview = conv.last.content.replace(/\s+/g, " ").trim() || "—";
   const active = conv.key === view.selected;
   return h("li", {},
     h("button", {
       type: "button",
-      class: `conv ${conv.status}${active ? " active" : ""}`,
+      class: `conv ${status}${active ? " active" : ""}`,
       "aria-current": active ? "true" : null,
       onclick: () => {
         view.selected = conv.key;
@@ -106,9 +136,7 @@ function conversationRow(ctx: Ctx, conv: Conversation, rerender: () => void): HT
       ),
       h("span", { class: "conv-bottom" },
         h("span", { class: "conv-preview", dir: "auto" }, conv.last.outgoing ? `أنا: ${preview}` : preview),
-        conv.pending > 0
-          ? h("span", { class: "nav-count hot", title: "رسائل بانتظار ردّك", "aria-label": `${fmtNumber(conv.pending)} بانتظار ردّك` }, fmtNumber(conv.pending))
-          : h("span", { class: "conv-state" }, MESSAGE_STATUS_LABEL.awaiting_them),
+        rowState(conv, status, manual),
       ),
     )),
   );
@@ -158,7 +186,7 @@ function chatThread(conv: Conversation, rerender: () => void): HTMLElement {
   );
 }
 
-function chatPanel(ctx: Ctx, conv: Conversation | undefined, find: Finder, rerender: () => void): HTMLElement {
+function chatPanel(ctx: Ctx, all: Conversation[], conv: Conversation | undefined, find: Finder, rerender: () => void): HTMLElement {
   if (!conv) return h("section", { class: "card chat-panel chat-empty" }, icon("message"), h("p", { class: "muted" }, "اختار محادثة من القائمة عشان تشوفها هون."));
   const target = analysisTarget(ctx, conv, find);
   const result = analysisResult(ctx, target);
@@ -175,11 +203,11 @@ function chatPanel(ctx: Ctx, conv: Conversation | undefined, find: Finder, reren
           h("span", { class: "sub", dir: "auto" }, role || `${fmtNumber(conv.items.length)} رسالة`),
         )),
       h("span", { class: "row tight wrap chat-actions" },
-        badge(MESSAGE_STATUS_LABEL[conv.status], conv.status === "awaiting_me" ? "bad" : "warn"),
         conv.thread ? h("a", { class: "button secondary small", href: conv.thread, target: "_blank", rel: "noopener noreferrer" }, icon("external"), "افتح على LinkedIn") : null,
         h("button", { type: "button", class: "small", onclick: () => void runAnalysis(ctx, target) }, icon("spark"), result ? "حلّل من جديد" : "حلّل بالذكاء الاصطناعي"),
       ),
     ),
+    statusPicker(ctx, all, conv),
     result ? h("details", { class: "chat-analysis", open: true }, h("summary", {}, "تحليل المحادثة بالذكاء الاصطناعي"), result) : null,
     chatThread(conv, rerender),
   );
@@ -192,8 +220,10 @@ export function renderMessages(ctx: Ctx, rerender: () => void): HTMLElement {
 
   const all = conversations(ctx.store.state.dataset.messages);
   const find = contactFinder(ctx.store.analysis.contacts);
-  const counts: Record<Filter, number> = { "": all.length, awaiting_me: 0, awaiting_them: 0 };
-  for (const c of all) counts[c.status] += 1;
+  const overrides = ctx.store.state.inbox;
+  const statuses = new Map(all.map((c) => [c.key, statusOf(c, overrides)]));
+  const counts: Record<Filter, number> = { "": all.length, awaiting_me: 0, awaiting_them: 0, done: 0 };
+  for (const status of statuses.values()) counts[status] += 1;
   const selected = all.find((c) => c.key === view.selected);
   if (!selected) view.selected = "";
 
@@ -203,7 +233,7 @@ export function renderMessages(ctx: Ctx, rerender: () => void): HTMLElement {
 
   const draw = (): void => {
     const needle = view.q.trim().toLowerCase();
-    filtered = all.filter((c) => (!view.filter || c.status === view.filter) && (!needle || c.search.includes(needle)));
+    filtered = all.filter((c) => (!view.filter || statuses.get(c.key) === view.filter) && (!needle || c.search.includes(needle)));
     summary.textContent = filtered.length === all.length ? `${fmtNumber(all.length)} محادثة` : `${fmtNumber(filtered.length)} من ${fmtNumber(all.length)} محادثة`;
     if (filtered.length === 0) {
       replace(listHost, h("li", { class: "empty-line" }, h("p", {}, all.length === 0 ? "ما في رسائل لسا. اعمل مزامنة أو ارفع ملف الـ Export." : "ما في محادثات بهالبحث أو الحالة.")));
@@ -245,7 +275,7 @@ export function renderMessages(ctx: Ctx, rerender: () => void): HTMLElement {
         h("div", { class: "row tight wrap conv-tools" }, summary, exportLinks(ctx, "messages", INBOX_COLUMNS, () => filtered.flatMap((c) => c.items))),
         listHost,
       ),
-      chatPanel(ctx, selected, find, rerender),
+      chatPanel(ctx, all, selected, find, rerender),
     ),
   );
 }

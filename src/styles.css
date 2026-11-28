@@ -459,6 +459,11 @@ input.short { inline-size: 8rem; }
 .conv-preview { color: var(--muted); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conv.awaiting_me .conv-preview { color: var(--text); }
 .conv-state { color: var(--muted); font-size: var(--fs-2xs); flex: none; }
+.conv-state.awaiting_me { color: var(--bad); font-weight: 600; }
+.conv-state.done { color: var(--good); }
+.chat-status { display: flex; align-items: center; gap: var(--space-3) var(--space-4); flex-wrap: wrap; padding-inline: var(--space-6); }
+.chat-status .segmented { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.chat-status .segmented button { padding: var(--space-1) var(--space-5); }
 .conv-more { margin: var(--space-3) auto; display: block; }
 .chat-panel { display: grid; gap: var(--space-4); padding: 0; overflow: hidden; position: sticky; inset-block-start: var(--space-6); min-inline-size: 0; }
 .chat-empty { place-items: center; align-content: center; min-block-size: 24rem; color: var(--muted); padding: var(--space-8); }
@@ -494,6 +499,7 @@ button.inbox-name:hover { text-decoration: underline; }
   .chat-head { padding: var(--space-4) var(--space-5) 0; }
   .chat-actions { justify-content: flex-start; }
   .chat-analysis { margin-inline: var(--space-4); }
+  .chat-status { padding-inline: var(--space-5); }
   .chat-body { padding-inline: var(--space-4); max-block-size: none; min-block-size: 0; overflow: visible; }
   .conv-list { max-block-size: none; overflow: visible; }
   .bubble { max-inline-size: 88%; }

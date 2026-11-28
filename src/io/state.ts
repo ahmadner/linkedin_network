@@ -4,6 +4,7 @@ import { DEFAULT_MODEL } from "../ai/openai";
 import { emptyDataset, repairMessages, sanitizePhotos } from "../core/dataset";
 import { emptyContent, sanitizeContent, type ContentState } from "../core/content";
 import { STAGES, TONES } from "../core/conversation";
+import { sanitizeInbox, type InboxOverride } from "../core/inbox";
 import { normalizeTags } from "../core/tags";
 import { TEMPLATE_IDS, type TemplateId } from "../core/templates";
 import { asNumber, asRecord, asString, asStringList, defaultProfile, DEFAULT_COMPANY_OVERRIDES, sanitizeOverrides, sanitizeProfile } from "../core/profile";
@@ -30,6 +31,7 @@ export interface AppState {
   dataset: Dataset;
   tracking: Record<string, Tracking>;
   log: LogEntry[];
+  inbox: Record<string, InboxOverride>;
   ai: AiState;
   content: ContentState;
 }
@@ -52,6 +54,7 @@ export function emptyState(): AppState {
     dataset: emptyDataset(),
     tracking: {},
     log: [],
+    inbox: {},
     ai: { model: DEFAULT_MODEL, messages: {}, classifications: {}, templates: {}, suggestions: null, analyses: {} },
     content: emptyContent(),
   };
@@ -102,7 +105,7 @@ export function exportStateZip(state: AppState, images: StoredImage[] = []): Uin
       [FILES.connections]: yaml(d.connections),
       [FILES.messages]: yaml(d.messages),
       [FILES.invitations]: yaml(d.invitations),
-      [FILES.tracking]: yaml({ tracking: state.tracking, log: state.log }),
+      [FILES.tracking]: yaml({ tracking: state.tracking, log: state.log, conversations: state.inbox }),
       [FILES.ai]: yaml(state.ai),
       [FILES.photos]: yaml(d.photos),
       [FILES.content]: yaml(state.content),
@@ -336,7 +339,7 @@ export function reviveState(raw: unknown): AppState | null {
     connections: dataset.connections,
     messages: dataset.messages,
     invitations: dataset.invitations,
-    tracking: { tracking: r.tracking, log: r.log },
+    tracking: { tracking: r.tracking, log: r.log, conversations: r.inbox },
     ai: r.ai,
     photos: dataset.photos,
     content: r.content,
@@ -383,6 +386,7 @@ function sanitizeState(sections: Sections): AppState {
   const tracking = asRecord(sections.tracking);
   state.tracking = recordOf(tracking.tracking, sanitizeTracking);
   state.log = list(tracking.log).map(sanitizeLog);
+  state.inbox = sanitizeInbox(tracking.conversations);
 
   const ai = asRecord(sections.ai);
   state.ai = {

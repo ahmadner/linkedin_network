@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildConversations, conversations } from "../src/core/inbox";
+import { activeOverride, buildConversations, conversations, manualDirections, sanitizeInbox, statusOf } from "../src/core/inbox";
 import type { Party, StoredMessage } from "../src/core/types";
 
 const me: Party = { name: "Me", slug: "me" };
@@ -69,5 +69,30 @@ describe("conversations", () => {
   it("reuses the result for the same message list", () => {
     const first = conversations(messages);
     expect(conversations(messages)).toBe(first);
+  });
+});
+
+describe("manual conversation status", () => {
+  const [sara1, omar1, lina1] = buildConversations(messages);
+
+  it("uses the manual status until a newer message arrives", () => {
+    const overrides = { [lina1!.key]: { status: "done" as const, at: lina1!.last.at } };
+    expect(statusOf(lina1!, overrides)).toBe("done");
+    const later = buildConversations([...messages, msg("8", "c1", "2026-11-08T10:00:00Z", false, [lina])]).find((c) => c.key === lina1!.key)!;
+    expect(activeOverride(later, overrides)).toBeNull();
+    expect(statusOf(later, overrides)).toBe("awaiting_me");
+  });
+
+  it("maps active overrides of one-to-one chats to a contact direction", () => {
+    const overrides = { [lina1!.key]: { status: "done" as const, at: lina1!.last.at }, [omar1!.key]: { status: "awaiting_me" as const, at: omar1!.last.at } };
+    const map = manualDirections(messages, overrides);
+    expect(map.get("lina-haddad")).toBe("done");
+    expect(map.get("omar-khalil")).toBe("them -> me");
+    expect(map.has(sara1!.key)).toBe(false);
+  });
+
+  it("drops bad saved entries", () => {
+    expect(sanitizeInbox({ a: { status: "done", at: "2026-11-01" }, b: { status: "nope", at: "x" }, c: { status: "done" }, d: "x" })).toEqual({ a: { status: "done", at: "2026-11-01" } });
+    expect(sanitizeInbox(null)).toEqual({});
   });
 });
