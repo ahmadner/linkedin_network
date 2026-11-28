@@ -25,6 +25,7 @@ let extensionVersion = "";
 let includeMessages = true;
 let refreshPhotos = false;
 let detectionStarted = false;
+let firefoxSigned = false;
 
 const PHASE_AR: Record<string, string> = {
   starting: "تجهيز",
@@ -120,7 +121,7 @@ type Browser = "chrome" | "firefox";
 
 const BROWSERS: Browser[] = IS_FIREFOX ? ["firefox", "chrome"] : ["chrome", "firefox"];
 const BROWSER_NAME: Record<Browser, string> = { chrome: "Chrome", firefox: "Firefox" };
-const DOWNLOADS: Record<Browser, string> = { chrome: "./linkedin-network-extension.zip", firefox: "./linkedin-network-extension-firefox.zip" };
+const DOWNLOADS: Record<Browser, string> = { chrome: "./linkedin-network-extension.zip", firefox: "./linkedin-network-extension.xpi" };
 
 function code(text: string): HTMLElement {
   return h("code", { dir: "ltr" }, text);
@@ -137,15 +138,42 @@ function installSteps(browser: Browser): HTMLElement {
       h("li", { class: "muted" }, "بتشتغل كمان على Edge و Brave وأي متصفح مبني على Chromium."),
     );
   }
+  if (LOCAL_TOOL) {
+    return h("ol", {},
+      h("li", {}, "شغّل ", code("npm run extension:local"), " بمجلد المشروع."),
+      h("li", {}, "افتح ", code("about:debugging#/runtime/this-firefox"), " واضغط Load Temporary Add-on."),
+      h("li", {}, "اختار الملف ", code("dist-extension/local-firefox/manifest.json"), "."),
+      signedIn,
+    );
+  }
+  const permissions = h("li", {}, "افتح ", code("about:addons"), "، اختار LinkedIn Network Sync، ومن Permissions تأكد إنه مسموح له يوصل لـ linkedin.com ولهاد الموقع.");
+  if (firefoxSigned) {
+    return h("div", {},
+      h("ol", {},
+        h("li", {}, "اضغط تحميل لـ Firefox من فايرفوكس نفسه."),
+        h("li", {}, "فايرفوكس بيسألك إذا بدك تسمح للموقع يركّب إضافة. اضغط Continue to Installation، وبعدها Add."),
+        permissions,
+        signedIn,
+      ),
+      h("p", { class: "muted small" }, "الملف موقّع من Mozilla، فالتركيب دائم على أي نسخة فايرفوكس 128 أو أحدث، وبيضل بعد ما تسكّر المتصفح."),
+    );
+  }
   return h("div", {},
+    h("p", {}, "ملف الـ .xpi لسا مش موقّع من Mozilla، ففي طريقتين:"),
+    h("h3", {}, "تركيب دائم (Firefox Developer Edition أو Nightly أو ESR)"),
     h("ol", {},
-      h("li", {}, ...(LOCAL_TOOL ? ["شغّل ", code("npm run extension:local"), " بمجلد المشروع."] : ["حمّل ملف الإضافة لـ Firefox. ما في داعي تفك الضغط."])),
-      h("li", {}, "افتح ", code("about:debugging#/runtime/this-firefox"), " بشريط العنوان."),
-      h("li", {}, ...(LOCAL_TOOL ? ["اضغط Load Temporary Add-on واختار الملف ", code("dist-extension/local-firefox/manifest.json"), "."] : ["اضغط Load Temporary Add-on واختار ملف الـ zip اللي نزّلته."])),
-      h("li", {}, "افتح ", code("about:addons"), "، اختار LinkedIn Network Sync، ومن Permissions تأكد إنه مسموح له يوصل لـ linkedin.com ولهاد الموقع."),
+      h("li", {}, "افتح ", code("about:config"), "، دوّر على ", code("xpinstall.signatures.required"), " وخلّيه false."),
+      h("li", {}, "نزّل ملف الـ .xpi، وافتح ", code("about:addons"), "، ومن زر الترس اختار Install Add-on From File واختار الملف."),
+      permissions,
       signedIn,
     ),
-    h("p", { class: "muted small" }, "بدها Firefox 128 أو أحدث. فايرفوكس بيشيل الإضافة المؤقتة لما تسكّره، فبتعيد الخطوة 3 بعد كل تشغيل. البيانات اللي نقلتها للموقع بتضل، بس الإضافة بتنسى عدّاد الإرسال اليومي، فانتبه ما تتعدى الحد بنفس اليوم. للتركيب الدائم، الإضافة لازم تكون موقّعة من Mozilla، أو بتستخدم Firefox Developer Edition وبتطفي xpinstall.signatures.required من about:config."),
+    h("h3", {}, "تركيب مؤقت (فايرفوكس العادي)"),
+    h("ol", {},
+      h("li", {}, "نزّل ملف الـ .xpi."),
+      h("li", {}, "افتح ", code("about:debugging#/runtime/this-firefox"), " واضغط Load Temporary Add-on واختار الملف."),
+      h("li", {}, "بيضل شغّال لحد ما تسكّر فايرفوكس، وبعدها بتعيد الخطوة 2."),
+    ),
+    h("p", { class: "muted small" }, "بدها Firefox 128 أو أحدث. فايرفوكس العادي ما بيقبل تركيب دائم لإضافة مش موقّعة. لما تنقلب الإضافة المؤقتة، البيانات اللي نقلتها للموقع بتضل، بس الإضافة بتنسى عدّاد الإرسال اليومي، فانتبه ما تتعدى الحد بنفس اليوم."),
   );
 }
 
@@ -183,7 +211,7 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
     h("div", { class: "row" },
       h("button", { type: "button", disabled: !installed || running, onclick: () => void start() }, "مزامنة الآن"),
       running ? h("button", { type: "button", class: "secondary", onclick: () => void cancelSync().then(rerender) }, "إيقاف") : null,
-      ...(LOCAL_TOOL ? [] : BROWSERS.map((b) => h("a", { class: "button secondary", href: DOWNLOADS[b], download: true }, icon("download"), `تحميل لـ ${BROWSER_NAME[b]}`))),
+      ...(LOCAL_TOOL ? [] : BROWSERS.map((b) => h("a", { class: "button secondary", href: DOWNLOADS[b], download: !(b === "firefox" && firefoxSigned) }, icon("download"), `تحميل لـ ${BROWSER_NAME[b]}`))),
     ),
     jobLine(lastJob),
     ...BROWSERS.map((b, i) => h("details", { class: "help", open: !installed && i === 0 },
@@ -362,6 +390,15 @@ function importCard(ctx: Ctx, rerender: () => void): HTMLElement {
 export function renderData(ctx: Ctx, rerender: () => void): HTMLElement {
   if (!detectionStarted) {
     detectionStarted = true;
+    if (!LOCAL_TOOL) {
+      void fetch("./extension.json", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((info: { firefox?: { signed?: unknown } } | null) => {
+          firefoxSigned = info?.firefox?.signed === true;
+          if (firefoxSigned) rerender();
+        })
+        .catch(() => undefined);
+    }
     void detectExtension().then((hello) => {
       if (!hello) return;
       extensionVersion = hello.version;

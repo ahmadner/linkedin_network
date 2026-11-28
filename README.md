@@ -38,15 +38,24 @@
 3. تأكد إنك مسجّل دخول على linkedin.com بنفس المتصفح
 4. ارجع للموقع واضغط **مزامنة الآن**
 
-**Firefox** (128 أو أحدث):
-1. من صفحة **البيانات** اضغط **تحميل لـ Firefox** (ما في داعي تفك الضغط)
-2. افتح `about:debugging#/runtime/this-firefox` واضغط **Load Temporary Add-on** واختار ملف الـ zip
-3. من `about:addons` تأكد إنه الإضافة مسموح لها توصل لـ linkedin.com ولموقع الأداة
-4. ارجع للموقع واضغط **مزامنة الآن**
+**Firefox** (128 أو أحدث): من صفحة **البيانات** اضغط **تحميل لـ Firefox** وبتنزل `linkedin-network-extension.xpi`.
+- **إذا الملف موقّع من Mozilla:** اضغط الزر من فايرفوكس نفسه، ووافق على التركيب. التركيب دائم.
+- **إذا مش موقّع:**
+  - على Firefox Developer Edition أو Nightly أو ESR: خلّي `xpinstall.signatures.required = false` بـ `about:config`، وبعدها من `about:addons` ← الترس ← **Install Add-on From File**. التركيب دائم.
+  - على فايرفوكس العادي: `about:debugging#/runtime/this-firefox` ← **Load Temporary Add-on**. بينشال لما تسكّر المتصفح.
 
-> فايرفوكس بيشيل الإضافة المؤقتة لما يتسكّر. للتركيب الدائم لازم توقيع من Mozilla (AMO، ممكن كـ unlisted)،
-> أو Firefox Developer Edition مع `xpinstall.signatures.required = false`.
 > فايرفوكس ما بيسمح لصفحة ويب تحكي مع إضافة مباشرة، فنسخة فايرفوكس فيها content script صغير على صفحة الأداة بس، بينقل الرسائل بين الصفحة والإضافة.
+
+#### توقيع نسخة فايرفوكس تلقائيًا
+الـ workflow بيوقّع الـ `.xpi` من Mozilla (unlisted، يعني مش منشور بالمتجر) لما يلاقي مفاتيح AMO:
+1. سجّل دخول على [addons.mozilla.org](https://addons.mozilla.org) بحساب Firefox.
+2. افتح [Manage API Keys](https://addons.mozilla.org/developers/addon/api/key/)، وافق على الاتفاقية، واضغط **Generate new credentials**.
+3. بالـ repo على GitHub: **Settings ← Secrets and variables ← Actions ← New repository secret**، وضيف:
+   - `AMO_JWT_ISSUER` = قيمة **JWT issuer**
+   - `AMO_JWT_SECRET` = قيمة **JWT secret**
+4. من **Actions ← Test and deploy to GitHub Pages ← Run workflow** شغّله مرة على `main`.
+
+بعدها كل تعديل على الإضافة بينوقّع لحاله بنسخة جديدة (`1.4.0.<رقم التشغيل>`). ولما الإضافة ما تتغير، الـ workflow بيحتفظ بالملف الموقّع من الموقع المنشور.
 
 كيف بيشتغل:
 - بيفتح تبويب LinkedIn بالخلفية وبيقرا بنفس الطلبات الي LinkedIn نفسه بيعملها. المزامنة **قراءة بس**.
