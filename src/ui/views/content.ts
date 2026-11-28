@@ -107,7 +107,7 @@ function batchToast(ctx: Ctx, result: BatchResult, what: string): void {
 
 async function writeNow(ctx: Ctx, idea: ContentIdea): Promise<void> {
   const draft = addDraft(ctx, ideaDraft(idea));
-  await runAi(ctx, "كتابة المنشور…", (cfg) => writeDraft(ctx, cfg, draft.id));
+  await runAi(ctx, "كتابة المنشور…", (cfg, progress) => writeDraft(ctx, cfg, draft.id, { progress }));
   openDraft(ctx, draft.id);
 }
 
