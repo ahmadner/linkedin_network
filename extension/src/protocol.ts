@@ -34,6 +34,7 @@ export interface SyncOptions {
   messages: boolean;
   photos: boolean;
   maxConversations: number;
+  quick: boolean;
 }
 
 export type JobState = "running" | "done" | "error" | "cancelled";

@@ -2,6 +2,7 @@ import "./styles.css";
 import { replyBacklog } from "./core/insights";
 import { loadStoredState } from "./io/db";
 import { reviveState } from "./io/state";
+import { startAutoSync } from "./ui/autoSync";
 import { createBusy, createToaster, type Ctx, type ViewId } from "./ui/context";
 import { fmtNumber, h, replace } from "./ui/dom";
 import { icon, type IconName } from "./ui/icons";
@@ -211,6 +212,7 @@ async function boot(): Promise<void> {
     toasts,
   );
   render();
+  startAutoSync(ctx, render, () => current);
 }
 
 applyTheme();
