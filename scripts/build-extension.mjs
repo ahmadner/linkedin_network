@@ -3,13 +3,14 @@ import { zipSync } from "fflate";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const source = join(root, "extension");
 const targets = JSON.parse(await readFile(join(source, "targets.json"), "utf8"));
 
 const [mode = "production", zipTarget] = process.argv.slice(2);
+const zipDir = zipTarget ? resolve(root, zipTarget) : "";
 const target = targets[mode];
 if (!target) {
   console.error(`unknown extension target "${mode}", expected one of: ${Object.keys(targets).join(", ")}`);
@@ -33,8 +34,14 @@ const origins = [...new Set([tool.origin, ...target.origins])];
 const prefixes = [...new Set([`${tool.origin}${toolPath}`, ...target.origins.map((origin) => `${new URL(origin).origin}/`)])];
 const matches = [`${tool.protocol}//${tool.hostname}${toolPath}*`, ...target.origins.map((origin) => `${new URL(origin).protocol}//${new URL(origin).hostname}/*`)];
 const FILES = { chrome: ["manifest.json", "background.js", "popup.js", "popup.html"], firefox: ["manifest.json", "background.js", "popup.js", "popup.html", "bridge.js"] };
-const ZIPS = { chrome: "linkedin-network-extension.zip", firefox: "linkedin-network-extension-firefox.zip" };
+const ZIPS = { chrome: "linkedin-network-extension.zip", firefox: "linkedin-network-extension.xpi" };
 const base = JSON.parse(await readFile(join(source, "manifest.json"), "utf8"));
+const firefoxBuild = process.env.FIREFOX_BUILD ?? "";
+if (firefoxBuild && !/^\d{1,9}$/.test(firefoxBuild)) {
+  console.error(`FIREFOX_BUILD must be a number, got "${firefoxBuild}"`);
+  process.exit(1);
+}
+const firefoxVersion = firefoxBuild ? `${base.version}.${firefoxBuild}` : base.version;
 const define = { __TOOL_ORIGINS__: JSON.stringify(origins), __TOOL_PREFIXES__: JSON.stringify(prefixes), __TOOL_URL__: JSON.stringify(toolUrl) };
 
 function chromeManifest() {
@@ -50,6 +57,7 @@ function firefoxManifest() {
   const { minimum_chrome_version, externally_connectable, background, ...manifest } = structuredClone(base);
   manifest.name = target.name;
   manifest.action.default_title = target.name;
+  manifest.version = firefoxVersion;
   manifest.background = { scripts: [background.service_worker], type: "module" };
   manifest.content_scripts = [{ matches: [...new Set(matches)], js: ["bridge.js"], run_at: "document_start" }];
   manifest.browser_specific_settings = { gecko: { id: target.geckoId, strict_min_version: "128.0", data_collection_permissions: { required: ["none"] } } };
@@ -89,10 +97,15 @@ for (const browser of ["chrome", "firefox"]) {
   if (zipTarget) {
     const files = {};
     for (const name of FILES[browser]) files[name] = new Uint8Array(await readFile(join(out, name)));
-    await mkdir(join(root, zipTarget), { recursive: true });
-    await writeFile(join(root, zipTarget, ZIPS[browser]), zipSync(files, { level: 9 }));
+    await mkdir(zipDir, { recursive: true });
+    await writeFile(join(zipDir, ZIPS[browser]), zipSync(files, { level: 9 }));
   }
   built.push(`${browser} -> ${out.slice(root.length)}${zipTarget ? ` + ${zipTarget}/${ZIPS[browser]}` : ""}`);
+}
+
+if (zipTarget) {
+  const info = { version: base.version, chrome: { file: ZIPS.chrome }, firefox: { file: ZIPS.firefox, version: firefoxVersion, signed: false } };
+  await writeFile(join(zipDir, "extension.json"), `${JSON.stringify(info, null, 2)}\n`);
 }
 
 console.log(`extension "${mode}" (${target.id}, ${target.geckoId}) built for ${origins.join(", ")}\n  ${built.join("\n  ")}`);
