@@ -1,8 +1,9 @@
 import "./styles.css";
+import { replyBacklog } from "./core/insights";
 import { loadStoredState } from "./io/db";
 import { reviveState } from "./io/state";
 import { startAutoSync } from "./ui/autoSync";
-import { awaitingMe, createBusy, createToaster, type Ctx, type ViewId } from "./ui/context";
+import { createBusy, createToaster, type Ctx, type ViewId } from "./ui/context";
 import { fmtNumber, h, replace } from "./ui/dom";
 import { icon, type IconName } from "./ui/icons";
 import { Store } from "./ui/store";
@@ -29,7 +30,7 @@ interface Page {
 
 const GROUPS: Array<[string, Page[]]> = [
   ["", [
-    { id: "home", label: "اليوم", icon: "home", intro: "أهم الخطوات اللي بتستناك هلأ." },
+    { id: "home", label: "اليوم", icon: "home", intro: "خطوتك الجاية، ومؤشرات بتقلك وين تركز ووين بتوقف." },
   ]],
   ["شبكتي", [
     { id: "contacts", label: "جهات الاتصال", icon: "users", intro: "كل شبكتك مرتبة حسب الأهمية. اضغط على أي شخص لتشوف تفاصيله ورسائله." },
@@ -122,7 +123,7 @@ async function boot(): Promise<void> {
     if (id === "content") return contentBadge(ctx);
     if (!store.hasData) return "";
     if (id === "home") {
-      const n = store.analysis.contacts.filter(awaitingMe).length;
+      const n = replyBacklog(store.analysis.contacts).fresh;
       return n > 0 ? fmtNumber(n) : "";
     }
     if (id === "contacts") return fmtNumber(store.analysis.contacts.length);
