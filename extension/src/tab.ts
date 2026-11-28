@@ -75,7 +75,7 @@ export async function pageRequest(tabId: number, url: string, options: RequestOp
           accept: graphql ? "application/graphql" : verb === "POST" ? "application/json" : "application/vnd.linkedin.normalized+json+2.1",
         };
         if (payload !== null) headers["content-type"] = "text/plain;charset=UTF-8";
-        const response = await fetch(target, { method: verb, credentials: "include", headers, body: payload ?? undefined });
+        const response = await fetch(target, { method: verb, credentials: "include", headers, body: payload });
         let body: unknown = null;
         try {
           body = await response.json();

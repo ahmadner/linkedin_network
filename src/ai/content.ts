@@ -186,7 +186,7 @@ export interface PostBrief {
   tone: Tone;
   length: Length;
   details: string;
-  series?: SeriesContext;
+  series?: SeriesContext | undefined;
 }
 
 export interface SeriesContext {
