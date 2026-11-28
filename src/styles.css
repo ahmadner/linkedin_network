@@ -28,6 +28,7 @@
   --shadow-lg: 0 12px 40px rgb(15 23 42 / 22%);
   --sidebar: 248px;
   --bottom-nav: 3.75rem;
+  --nav-offset: 0px;
   --on-status: #ffffff;
   --accent-chip: rgb(0 0 0 / 28%);
   --scrim: rgb(15 23 42 / 32%);
@@ -455,6 +456,7 @@ details[open] > summary { margin-block-end: var(--space-3); }
 .tabs.small button.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 
 @media (max-width: 900px) {
+  :root { --nav-offset: calc(var(--bottom-nav) + env(safe-area-inset-bottom)); }
   .app { display: block; background: none; }
   .sidebar { position: sticky; inset-block-start: 0; z-index: 20; block-size: auto; flex-direction: row; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-inline-end: 0; border-block-end: 1px solid var(--border); overflow: hidden; }
   .brand { padding: 0; }
@@ -462,16 +464,15 @@ details[open] > summary { margin-block-end: var(--space-3); }
   .brand-mark { inline-size: 32px; block-size: 32px; }
   .theme-toggle { margin-inline-start: auto; }
   .nav { display: none; }
-  .menu-open .nav { display: grid; position: fixed; inset-inline: 0; inset-block-end: calc(var(--bottom-nav) + env(safe-area-inset-bottom)); max-block-size: calc(100dvh - var(--bottom-nav) - 5rem); overflow-y: auto; gap: var(--space-5); padding: var(--space-5); background: var(--surface); border-block-start: 1px solid var(--border); border-start-start-radius: var(--radius); border-start-end-radius: var(--radius); box-shadow: var(--shadow-lg); z-index: 30; }
+  .menu-open .nav { display: grid; position: fixed; inset-inline: 0; inset-block-end: var(--nav-offset); max-block-size: calc(100dvh - var(--nav-offset) - 5rem); overflow-y: auto; gap: var(--space-5); padding: var(--space-5); background: var(--surface); border-block-start: 1px solid var(--border); border-start-start-radius: var(--radius); border-start-end-radius: var(--radius); box-shadow: var(--shadow-lg); z-index: 30; }
   .menu-open .nav-title { display: block; }
   .menu-open .sidebar { z-index: 30; }
   .menu-open .content::after { content: ""; position: fixed; inset: 0; background: var(--scrim); z-index: 25; }
-  .bottom-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: fixed; inset-inline: 0; inset-block-end: 0; z-index: 31; block-size: calc(var(--bottom-nav) + env(safe-area-inset-bottom)); padding-block-end: env(safe-area-inset-bottom); background: var(--surface); border-block-start: 1px solid var(--border); }
-  main { padding-block-end: calc(var(--bottom-nav) + var(--space-9)); }
-  .toasts { inset-block-end: calc(var(--bottom-nav) + var(--space-5)); }
+  .bottom-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: fixed; inset-inline: 0; inset-block-end: 0; z-index: 31; block-size: var(--nav-offset); padding-block-end: env(safe-area-inset-bottom); background: var(--surface); border-block-start: 1px solid var(--border); }
+  .toasts { inset-block-end: calc(var(--nav-offset) + var(--space-5)); }
   .page-head { padding: var(--space-6) var(--space-6) var(--space-1); }
   .page-head h1 { font-size: var(--fs-xl); }
-  main { padding: var(--space-5) var(--space-6) var(--space-10); }
+  main { padding: var(--space-5) var(--space-6) calc(var(--nav-offset) + var(--space-10)); }
 }
 
 @media (max-width: 720px) {
@@ -499,7 +500,7 @@ details[open] > summary { margin-block-end: var(--space-3); }
   .thread li { max-inline-size: 95%; }
   .facts { grid-template-columns: 1fr; gap: 0; }
   .facts dd { margin-block-end: var(--space-2); }
-  .toasts { inset-inline: 1rem; inset-block-end: calc(var(--bottom-nav) + var(--space-3)); max-inline-size: none; }
+  .toasts { inset-inline: 1rem; inset-block-end: calc(var(--nav-offset) + var(--space-3)); max-inline-size: none; }
 }
 .content-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-5); flex-wrap: wrap; }
 .content-head .presets { flex: 1 1 auto; min-inline-size: 0; }
@@ -734,7 +735,7 @@ details[open] > summary { margin-block-end: var(--space-3); }
 .gallery .thumb { inline-size: 84px; block-size: 84px; }
 @media (max-width: 1100px) {
   .editor-side { max-block-size: none; overflow: visible; }
-  .editor-dock { display: flex; gap: var(--space-3); justify-content: flex-end; position: sticky; inset-block-end: var(--bottom-nav); z-index: 5; margin-inline: calc(var(--space-6) * -1); padding: var(--space-4) var(--space-6); background: var(--surface); border-block-start: 1px solid var(--border); box-shadow: var(--shadow-dock); }
+  .editor-dock { display: flex; gap: var(--space-3); justify-content: flex-end; position: sticky; inset-block-end: var(--nav-offset); z-index: 5; margin-inline: calc(var(--space-6) * -1); padding: var(--space-4) var(--space-6); background: var(--surface); border-block-start: 1px solid var(--border); box-shadow: var(--shadow-dock); }
   .editor-dock button:last-child { flex: 1; }
 }
 @media (max-width: 900px) {
