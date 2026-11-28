@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { finalImagePrompt, freeDates, generateImage, imageModelChain, imageSize, planContent, planDates, planSeries, replaceHook, weekdayIndex, writePost } from "../src/ai/content";
+import { artDirection, composeImagePrompt, finalImagePrompt, freeDates, generateImage, imageModelChain, imageSize, planContent, planDates, planSeries, replaceHook, weekdayIndex, writePost } from "../src/ai/content";
 import {
   contentStats, emptyContent, foldPreview, mergeExportPosts, newDraft, postChecks, postKey, publishText, restoreDraftVersion, sanitizeContent, shareUrl, withHashtags, withVersion, type Post,
 } from "../src/core/content";
 import { sanitizeProfile } from "../src/core/profile";
+import { OpenAiError } from "../src/ai/openai";
 import { importExport } from "../src/io/exportImport";
 import { jpegPdf } from "../src/io/pdf";
 import { emptyState, exportStateZip, readStateZip, reviveState } from "../src/io/state";
@@ -186,6 +187,82 @@ describe("content AI", () => {
     const result = await writePost({ topic: "t", hook: "", pillar: "", format: "text", lang: "en", tone: "professional", length: "short", details: "" }, profile, [], null, emptyContent().settings, { key: "sk-test", model: "gpt-4.1-mini" });
     expect(result.text).toBe("Hook\n\nBody");
     expect(result.hashtags).toEqual(["#java", "#springboot"]);
+  });
+
+  it("plans, drafts and edits a post in three steps", async () => {
+    const calls: Array<{ system: string; user: Record<string, unknown> }> = [];
+    const answers = [
+      { angle: "queues", hook: "Stop blocking requests", beats: [{ point: "why", detail: "Laravel queue with Redis" }, { point: "", detail: "" }], hooks: ["a", "b"], chosen: 1 },
+      { title: "مسودة", text: "Draft text", hashtags: ["laravel"], slides: [], poll_options: [] },
+      { scores: { hook: 8 }, problems: ["vague"], title: "", text: "Final\n\n\nText", hashtags: [], slides: [] },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+      calls.push({ system: body.messages[0]!.content, user: JSON.parse(body.messages[1]!.content) as Record<string, unknown> });
+      return reply(200, { choices: [{ message: { content: JSON.stringify(answers[calls.length - 1]) } }] });
+    }));
+    const stages: string[] = [];
+    const result = await writePost({ topic: "queues", hook: "", pillar: "", format: "text", lang: "en", tone: "bold", length: "medium", details: "real project" }, sanitizeProfile(sampleProfile()), [], null, emptyContent().settings, { key: "sk-test", model: "gpt-4.1-mini" }, (s) => stages.push(s));
+    expect(stages).toEqual(["plan", "draft", "edit"]);
+    expect(calls).toHaveLength(3);
+    expect(calls[1]!.user.blueprint).toMatchObject({ angle: "queues", hook: "Stop blocking requests", beats: [{ point: "why", detail: "Laravel queue with Redis" }] });
+    expect(calls[2]!.user.draft).toMatchObject({ text: "Draft text", hashtags: ["#laravel"] });
+    expect(String((calls[0]!.user.brief as Record<string, unknown>).tone)).toMatch(/^bold:/);
+    expect(result).toMatchObject({ title: "مسودة", text: "Final\n\nText", hashtags: ["#laravel"] });
+  });
+
+  it("keeps the draft when the editor step fails", async () => {
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      n += 1;
+      if (n === 3) return reply(200, { choices: [{ message: { content: "not json" } }] });
+      return reply(200, { choices: [{ message: { content: JSON.stringify({ title: "t", text: "Draft only", hashtags: [] }) } }] });
+    }));
+    const result = await writePost({ topic: "t", hook: "", pillar: "", format: "text", lang: "en", tone: "professional", length: "short", details: "" }, sanitizeProfile(sampleProfile()), [], null, emptyContent().settings, { key: "sk-test", model: "gpt-4.1-mini" });
+    expect(result.text).toBe("Draft only");
+  });
+
+  it("stops when the editor step hits a fatal error", async () => {
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      n += 1;
+      if (n === 3) return reply(401, { error: { message: "bad key" } });
+      return reply(200, { choices: [{ message: { content: JSON.stringify({ text: "Draft" }) } }] });
+    }));
+    await expect(writePost({ topic: "t", hook: "", pillar: "", format: "text", lang: "en", tone: "professional", length: "short", details: "" }, sanitizeProfile(sampleProfile()), [], null, emptyContent().settings, { key: "sk-test", model: "gpt-4.1-mini" })).rejects.toBeInstanceOf(OpenAiError);
+  });
+
+  it("builds the image from a visual brief of the post", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const answers = [
+      { topic: "POS kiosk skin analysis", core_message: "AI gives instant results at the counter", key_elements: ["POS kiosk", "phone camera"], concepts: [{ scene: "A", link: "a" }, { scene: "Customer scans skin at a kiosk", link: "shows the product" }], chosen: 1, headline: "Instant skin check", alt: "A kiosk" },
+      { subject: "a customer taking a skin photo at a POS kiosk", must_show: ["kiosk screen", "phone camera"], setting: "pharmacy counter", composition: "subject left, space right.", lighting: "soft", palette: "navy", mood: "calm", avoid: ["light bulbs"] },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+      calls.push(JSON.parse(body.messages[1]!.content) as Record<string, unknown>);
+      return reply(200, { choices: [{ message: { content: JSON.stringify(answers[calls.length - 1]) } }] });
+    }));
+    const scenes: number[] = [];
+    const art = await artDirection({ title: "Kiosk", text: "I built a Laravel backend for POS kiosks", lang: "en", style: "editorial", aspect: "portrait", overlay: "", brandColors: "", role: "Developer" }, { key: "sk-test", model: "gpt-4.1-mini" }, () => scenes.push(1));
+    expect(String(calls[0]!.post)).toBe("Kiosk\n\nI built a Laravel backend for POS kiosks");
+    expect(calls[1]!.visual_brief).toMatchObject({ chosen_concept: "Customer scans skin at a kiosk", key_elements: ["POS kiosk", "phone camera"] });
+    expect(scenes).toHaveLength(1);
+    expect(art.headline).toBe("Instant skin check");
+    expect(art.prompt.split("\n").slice(0, 4)).toEqual([
+      "Image for a LinkedIn post about: POS kiosk skin analysis.",
+      "The image must make this message obvious: AI gives instant results at the counter.",
+      "Concept: Customer scans skin at a kiosk.",
+      "Main subject: a customer taking a skin photo at a POS kiosk.",
+    ]);
+    expect(art.prompt).toContain("Must be clearly visible: kiosk screen; phone camera.");
+    expect(art.prompt).toContain("Composition: subject left, space right.");
+  });
+
+  it("skips empty lines in the image prompt and rejects an empty scene", async () => {
+    expect(composeImagePrompt({ topic: "t", coreMessage: "", audience: "", keyElements: [], setting: "", emotion: "calm", concept: "", link: "", headline: "", alt: "" }, { subject: "s", mustShow: [], setting: "", composition: "", lighting: "", palette: "", mood: "", avoid: [] })).toBe("Image for a LinkedIn post about: t.\nMain subject: s.\nMood: calm.");
+    vi.stubGlobal("fetch", vi.fn(async () => reply(200, { choices: [{ message: { content: JSON.stringify({ topic: "x" }) } }] })));
+    await expect(artDirection({ title: "", text: "post", lang: "ar", style: "x", aspect: "square", overlay: "", brandColors: "", role: "" }, { key: "sk-test", model: "m" })).rejects.toThrow(/empty image scene/);
   });
 
   it("only keeps plan items for the requested dates", async () => {

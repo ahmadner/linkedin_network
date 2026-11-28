@@ -173,7 +173,7 @@ function writeBox(ctx: Ctx, d: Draft): HTMLElement {
     if (!subject && !details.value.trim() && !d.text.trim()) return ctx.toast("اكتب عن شو المنشور أول.", "error");
     ui.details = details.value;
     const rewriting = Boolean(d.text.trim()) && d.status !== "idea";
-    const result = await runAi(ctx, "كتابة المنشور…", (cfg) => writeDraft(ctx, cfg, d.id, { topic: subject, details: details.value, tone: ui.tone, length }));
+    const result = await runAi(ctx, "كتابة المنشور…", (cfg, progress) => writeDraft(ctx, cfg, d.id, { topic: subject, details: details.value, tone: ui.tone, length, progress }));
     if (!result) return;
     Object.assign(ui, { note: rewriting ? "انكتب المنشور من جديد." : "", hooks: [], review: null, tags: [] });
     ctx.store.emit();

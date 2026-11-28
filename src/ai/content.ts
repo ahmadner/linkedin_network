@@ -4,14 +4,24 @@ import {
 } from "../core/content";
 import { asNumber, asRecord, asString, asStringList } from "../core/profile";
 import type { Profile } from "../core/types";
+import { EDITOR_RUBRIC, FACTS_RULE, FORMAT_RULES, LANGUAGE_RULE, POST_PLAYBOOK, VISUAL_RULES } from "./craft";
 import { myFacts, NAME_RULE } from "./features";
-import { chatJson, isModelAccessError, OpenAiError, postJson, type AiConfig } from "./openai";
+import { chatJson, isFatalError, isModelAccessError, OpenAiError, postJson, type AiConfig } from "./openai";
 
 export type Tone = "professional" | "friendly" | "story" | "bold" | "educational" | "humble";
 export type Length = "short" | "medium" | "long";
 export type RewriteAction = "improve" | "shorten" | "lengthen" | "tone" | "translate" | "cta" | "proofread" | "emoji" | "format" | "repurpose";
 
 export const TONE_LABEL: Record<Tone, string> = { professional: "مهني", friendly: "ودّي", story: "قصة", bold: "جريء", educational: "تعليمي", humble: "متواضع" };
+const TONE_DIRECTION: Record<Tone, string> = {
+  professional: "professional: clear, credible and practical, like a respected expert talking to peers",
+  friendly: "friendly: warm and conversational, like talking to a colleague over coffee, still sharp and useful",
+  story: "story: open inside a real moment, with tension and a turning point, then the lesson",
+  bold: "bold: a strong, clear opinion that challenges common practice, backed by reasons and proof, never rude",
+  educational: "educational: a practical mini-lesson with clear steps, examples and the common trap",
+  humble: "humble: honest about mistakes and what was learned, confident about the lesson",
+};
+
 export const LENGTH_LABEL: Record<Length, string> = { short: "قصير", medium: "متوسط", long: "طويل" };
 export const IMAGE_ASPECT_LABEL: Record<ImageAspect, string> = { portrait: "طولي 4:5 (الأفضل للموبايل)", square: "مربع 1:1", landscape: "عرضي 1.91:1" };
 export const IMAGE_QUALITY_LABEL: Record<ImageQuality, string> = { low: "سريعة ورخيصة", medium: "متوازنة", high: "أعلى دقة" };
@@ -22,14 +32,14 @@ export interface ImageStyle {
 }
 
 export const IMAGE_STYLES: Record<string, ImageStyle> = {
-  editorial: { label: "صورة مهنية", direction: "premium editorial photograph, real-world setting, natural window light, 35mm lens, shallow depth of field, authentic and candid, subtle color grading" },
-  minimal: { label: "بسيط ونظيف", direction: "minimalist composition, one strong focal subject, generous negative space, soft neutral background, refined muted palette, calm and premium" },
-  infographic: { label: "إنفوغرافيك", direction: "clean modern infographic layout, clear visual hierarchy, simple icons and shapes, aligned grid, flat vector style, crisp edges, high legibility" },
-  illustration: { label: "رسم حديث", direction: "modern flat vector illustration, friendly characters without real identities, soft gradients, bold simple shapes, contemporary tech-startup style" },
-  render3d: { label: "ثلاثي الأبعاد", direction: "polished 3D render, soft studio lighting, smooth matte materials, gentle shadows, clay-like modern look, isometric camera" },
-  conceptual: { label: "مفهوم ذكي", direction: "clever conceptual visual metaphor that tells the idea at a glance, surreal but clean, single striking object, studio backdrop, high-end ad campaign look" },
-  tech: { label: "تقني", direction: "sleek technical visualization, abstract architecture diagrams and data flows, glowing lines on a dark background, precise geometry, futuristic but professional" },
-  brand: { label: "ألوان البراند", direction: "bold graphic poster design, strong geometric layout, flat color blocks using only the brand palette, modern Swiss design influence" },
+  editorial: { label: "صورة مهنية", direction: "premium editorial photograph of the real situation in the post, real-world setting that matches the topic, natural light, 35mm lens, shallow depth of field, authentic and candid, subtle color grading" },
+  minimal: { label: "بسيط ونظيف", direction: "minimalist composition built around the one object or action that best represents the post, generous negative space, soft neutral background, refined muted palette, calm and premium" },
+  infographic: { label: "إنفوغرافيك", direction: "clean modern infographic that visualizes the post's actual steps, parts or comparison as simple icons and shapes, clear visual hierarchy, aligned grid, flat vector style, crisp edges" },
+  illustration: { label: "رسم حديث", direction: "modern flat vector illustration of the post's real scene and its key objects, characters without real identities, soft gradients, bold simple shapes, contemporary product-illustration style" },
+  render3d: { label: "ثلاثي الأبعاد", direction: "polished 3D render of the post's key objects arranged to tell its message, soft studio lighting, smooth matte materials, gentle shadows, clay-like modern look" },
+  conceptual: { label: "مفهوم ذكي", direction: "one clever visual metaphor made only from objects that belong to the post's topic, understood at a glance, clean studio backdrop, high-end ad campaign look" },
+  tech: { label: "تقني", direction: "sleek technical visual of the real systems in the post (devices, servers, data flowing between the named parts, simplified code-like shapes without readable text), precise geometry, modern dark interface look, professional" },
+  brand: { label: "ألوان البراند", direction: "bold graphic poster that shows the post's key object or idea as a strong simple shape, geometric layout, flat color blocks using only the brand palette, modern Swiss design influence" },
 };
 
 export const DEFAULT_IMAGE_STYLE = "editorial";
@@ -53,23 +63,12 @@ export function imageStyle(key: string): ImageStyle {
   return IMAGE_STYLES[key] ?? IMAGE_STYLES[DEFAULT_IMAGE_STYLE]!;
 }
 
-const LENGTH_CHARS: Record<Length, string> = { short: "400 to 700 characters", medium: "800 to 1300 characters", long: "1400 to 2200 characters" };
-const LENGTH_FOR_FORMAT: Record<PostFormat, Length> = { text: "medium", image: "short", carousel: "short", poll: "short", video: "short", article: "long" };
-
-const LANGUAGE_RULE = "Arabic text must be natural, clear Arabic the way Jordanian professionals write on LinkedIn (light Levantine flavor, never stiff MSA, never a literal translation of English). English text must be natural, plain professional English.";
-const FACTS_RULE = "Use only facts given in the input about the user. Never invent numbers, employers, clients, awards, results or stories. When a concrete detail would help but is not given, write a short placeholder in square brackets such as [رقم] or [example] so the user can fill it in.";
-const STYLE_RULE = [
-  "LinkedIn post craft: the first two lines are the hook and must make people tap 'see more' (about 210 characters show before the fold).",
-  "Use short paragraphs and white space, one idea per line where it helps, no walls of text.",
-  "Give real value: a lesson, a story, a how-to, a strong opinion or a useful list. Avoid clichés like 'I am thrilled to announce' and avoid engagement bait.",
-  "End with a natural call to action or question when it fits.",
-  "Put 3 to 5 relevant hashtags only in the hashtags field, never inside the text.",
-  "Emojis are optional and few.",
-].join(" ");
+const LENGTH_CHARS: Record<Length, string> = { short: "700 to 1000 characters", medium: "1200 to 1800 characters", long: "1900 to 2700 characters" };
+const LENGTH_FOR_FORMAT: Record<PostFormat, Length> = { text: "medium", image: "medium", carousel: "short", poll: "short", video: "short", article: "long" };
 
 function profileBlock(profile: Profile, settings: ContentSettings, strategy: ContentStrategy | null): Record<string, unknown> {
   return {
-    me: myFacts(profile),
+    me: { ...myFacts(profile), location: profile.me.location, education: profile.me.education, github: profile.me.github },
     target_companies: profile.targeting.target_companies.slice(0, 15),
     target_industries: profile.targeting.target_industries.slice(0, 10),
     content_pillars: settings.pillars.length ? settings.pillars : strategy?.pillars.map((p) => p.name) ?? [],
@@ -209,17 +208,103 @@ export interface WrittenPost {
   pollOptions: string[];
 }
 
+export type WriteStage = "plan" | "draft" | "edit";
+
+interface PostBlueprint {
+  reader: string;
+  angle: string;
+  coreMessage: string;
+  framework: string;
+  hook: string;
+  hooks: string[];
+  beats: Array<{ point: string; detail: string }>;
+  proof: string[];
+  takeaway: string;
+  cta: string;
+}
+
+const SERIES_RULE = "If brief.series is given, this post is one part of a connected series: say naturally which part it is (for example 'الجزء 2 من سلسلة …' or 'Part 2 of …'), follow this part's angle, build on the previous parts without repeating them (a short callback is fine), stay consistent with the series theme and arc, and when a next part exists end with a short teaser for it.";
+const LENGTH_RULE = "Respect the length in brief.length and never go over 2900 characters.";
+const POST_JSON = "title (short internal title in Arabic), text (the post, without hashtags), hashtags (3 to 5), slides (array of objects with title and body, only for carousel, otherwise empty), poll_question and poll_options (only for poll, otherwise empty)";
+
+const BLUEPRINT_SYSTEM = [
+  NAME_RULE,
+  "You are a senior LinkedIn ghostwriter and content strategist. Before anything is written, build a detailed blueprint for one post from the brief, the user's profile and their recent posts.",
+  "Think like the target reader: what they struggle with on this topic, and what would make them stop, read to the end, save and comment.",
+  "Choose one sharp, specific angle (never a generic overview) and one structure framework that fits it.",
+  "Every beat must hold a concrete detail: a real step, tool, technique, trade-off, mistake, scene or fact from the input. A beat without a concrete detail is not allowed.",
+  FACTS_RULE,
+  "If brief.details_from_user is given, it is the most important input: build the post around it.",
+  "If brief.series is given, plan this part's angle inside the series: build on the previous parts without repeating them, and set up the next part.",
+  "Write the blueprint in English (it is internal) except hooks, hook and cta, which are in brief.lang.",
+  "Return a JSON object with keys: reader (who exactly this is for and their pain, one sentence), angle, core_message (the one idea the reader must remember), framework, hooks (3 different first lines, each using a different technique), hook (the strongest first two lines, refined), beats (4 to 7 objects in order, each with point and detail), proof (facts from the input that give credibility), takeaway (one line), cta (a specific question or next step).",
+].join(" ");
+
 const WRITE_SYSTEM = [
   NAME_RULE,
-  "You are a ghostwriter for the user's LinkedIn posts. Write one complete post from the brief in the input, in the brief's lang, in the user's own voice (first person).",
+  "You are an elite LinkedIn ghostwriter. Write one complete post from the blueprint and the brief in the input, in brief.lang, in the user's own voice (first person).",
+  "The blueprint is the plan: open with its hook (polish it if you can), cover every beat in order with its concrete detail, use the proof, land the takeaway and end with the call to action.",
   LANGUAGE_RULE,
-  STYLE_RULE,
+  POST_PLAYBOOK,
   FACTS_RULE,
-  "Learn the user's voice from their recent posts when given, but make this post better than them.",
-  "If brief.series is given, this post is one part of a connected series: say naturally which part it is (for example 'الجزء 2 من سلسلة …' or 'Part 2 of …'), follow this part's angle, build on the previous parts without repeating them (a short callback is fine), stay consistent with the series theme and arc, and when a next part exists end with a short teaser for it.",
-  "Respect the format: text = a strong standalone post; image = a shorter post that works with one image; carousel = a short post that introduces a document carousel plus 6 to 9 slides; poll = a short post plus a poll question and 2 to 4 options of at most 30 characters; video = a short post that introduces a video; article = a longer, structured post with a clear title.",
-  "Return a JSON object with keys: title (short internal title in Arabic), text (the post, without hashtags), hashtags (3 to 5), slides (array of objects with title and body, only for carousel, otherwise empty), poll_question and poll_options (only for poll, otherwise empty).",
-].join(" ");
+  "Learn the user's voice from recent_posts_for_voice when given, but make this post clearly better than them.",
+  SERIES_RULE,
+  `Respect the format: ${FORMAT_RULES}`,
+  LENGTH_RULE,
+  `Return a JSON object with keys: ${POST_JSON}.`,
+].join("\n");
+
+const EDIT_SYSTEM = [
+  NAME_RULE,
+  "You are a demanding LinkedIn editor. Review the draft in the input against the brief, the blueprint and the playbook, then return the improved final version, ready to publish.",
+  EDITOR_RUBRIC,
+  LANGUAGE_RULE,
+  POST_PLAYBOOK,
+  FACTS_RULE,
+  SERIES_RULE,
+  `Respect the format: ${FORMAT_RULES}`,
+  LENGTH_RULE,
+  `Return a JSON object with keys: scores (object with hook, specificity, depth, structure, voice, ending), problems (array of short strings), ${POST_JSON}. Keep and improve slides and poll fields when the format needs them.`,
+].join("\n");
+
+function blueprintOf(data: unknown): PostBlueprint {
+  const raw = asRecord(data);
+  const beats = (Array.isArray(raw.beats) ? raw.beats : []).slice(0, 8).map((b) => {
+    const r = asRecord(b);
+    return { point: asString(r.point, 400).trim(), detail: asString(r.detail, 800).trim() };
+  }).filter((b) => b.point || b.detail);
+  return {
+    reader: asString(raw.reader, 400).trim(),
+    angle: asString(raw.angle, 400).trim(),
+    coreMessage: asString(raw.core_message, 400).trim(),
+    framework: asString(raw.framework, 200).trim(),
+    hook: asString(raw.hook, 400).trim(),
+    hooks: asStringList(raw.hooks, 3),
+    beats,
+    proof: asStringList(raw.proof, 6),
+    takeaway: asString(raw.takeaway, 300).trim(),
+    cta: asString(raw.cta, 300).trim(),
+  };
+}
+
+function blueprintInput(b: PostBlueprint): Record<string, unknown> {
+  return { reader: b.reader, angle: b.angle, core_message: b.coreMessage, framework: b.framework, hook: b.hook, other_hooks: b.hooks, beats: b.beats, proof: b.proof, takeaway: b.takeaway, cta: b.cta };
+}
+
+function writtenInput(w: WrittenPost): Record<string, unknown> {
+  return { title: w.title, text: w.text, hashtags: w.hashtags, slides: w.slides, poll_question: w.pollQuestion, poll_options: w.pollOptions };
+}
+
+function merged(draft: WrittenPost, edited: WrittenPost): WrittenPost {
+  return {
+    title: edited.title || draft.title,
+    text: edited.text,
+    hashtags: edited.hashtags.length > 0 ? edited.hashtags : draft.hashtags,
+    slides: edited.slides.length > 0 ? edited.slides : draft.slides,
+    pollQuestion: edited.pollQuestion || draft.pollQuestion,
+    pollOptions: edited.pollOptions.length >= 2 ? edited.pollOptions : draft.pollOptions,
+  };
+}
 
 function written(data: unknown): WrittenPost {
   const raw = asRecord(data);
@@ -242,7 +327,7 @@ function slidesOf(value: unknown): Array<{ title: string; body: string }> {
   }).filter((s) => s.title || s.body);
 }
 
-export async function writePost(brief: PostBrief, profile: Profile, posts: Post[], strategy: ContentStrategy | null, settings: ContentSettings, cfg: AiConfig): Promise<WrittenPost> {
+export async function writePost(brief: PostBrief, profile: Profile, posts: Post[], strategy: ContentStrategy | null, settings: ContentSettings, cfg: AiConfig, onStage?: (stage: WriteStage) => void): Promise<WrittenPost> {
   const input = {
     profile: profileBlock(profile, settings, strategy),
     what_works: strategy?.works ?? [],
@@ -253,7 +338,7 @@ export async function writePost(brief: PostBrief, profile: Profile, posts: Post[
       pillar: brief.pillar,
       format: brief.format,
       lang: brief.lang,
-      tone: brief.tone,
+      tone: TONE_DIRECTION[brief.tone],
       length: LENGTH_CHARS[brief.length],
       details_from_user: brief.details,
       series: brief.series ? {
@@ -267,8 +352,18 @@ export async function writePost(brief: PostBrief, profile: Profile, posts: Post[
       } : undefined,
     },
   };
-  const { data } = await chatJson(cfg, WRITE_SYSTEM, JSON.stringify(input));
-  return written(data);
+  onStage?.("plan");
+  const blueprint = blueprintInput(blueprintOf((await chatJson(cfg, BLUEPRINT_SYSTEM, JSON.stringify(input))).data));
+  onStage?.("draft");
+  const draft = written((await chatJson(cfg, WRITE_SYSTEM, JSON.stringify({ ...input, blueprint }))).data);
+  onStage?.("edit");
+  try {
+    const { data } = await chatJson(cfg, EDIT_SYSTEM, JSON.stringify({ profile: input.profile, brief: input.brief, blueprint, draft: writtenInput(draft) }));
+    return merged(draft, written(data));
+  } catch (error) {
+    if (cfg.signal?.aborted || isFatalError(error)) throw error;
+    return draft;
+  }
 }
 
 export function defaultLength(format: PostFormat): Length {
@@ -276,26 +371,27 @@ export function defaultLength(format: PostFormat): Length {
 }
 
 const ACTION_TASK: Record<RewriteAction, string> = {
-  improve: "Make the post clearly better: a stronger hook, tighter sentences, better structure and flow, a clear takeaway and a natural call to action. Keep the meaning, facts and language.",
+  improve: "Edit the post to a publish-ready professional level: score it against the playbook, then fix every weakness. A sharper, specific hook; concrete details in every paragraph instead of vague lines; real depth (steps, trade-offs, an example); clean phone-friendly structure; a clear takeaway and a specific call to action. Keep the true facts, the meaning and the language.",
   shorten: "Make the post about 40% shorter. Keep the hook, the key idea and the call to action.",
-  lengthen: "Expand the post with more useful depth (steps, an example, a lesson), staying under 2200 characters. Use placeholders in square brackets for any concrete detail that is not given.",
+  lengthen: "Expand the post with real depth: concrete steps, a specific example from the user's projects and skills, the trade-off or common trap, and a clear lesson, staying under 2700 characters. Every added line must add a new concrete detail, never filler.",
   tone: "Rewrite the post in the requested tone. Keep the meaning, facts and language.",
   translate: "Translate and adapt the post into the other language (Arabic to English or English to Arabic). Adapt idioms and rhythm so it reads as if written in that language.",
   cta: "Keep the post and rewrite only the ending so it has a strong, natural call to action or question that invites comments.",
   proofread: "Fix spelling, grammar and punctuation only. Do not change the wording or style otherwise.",
   emoji: "Add a few fitting emojis where they help scanning (for example at the start of list lines). Do not overdo it.",
   format: "Reformat for easy reading on a phone: short paragraphs, white space, lists where they help. Do not change the wording.",
-  repurpose: "Write a fresh new post from this old post: a new angle, a new hook and updated framing, so it does not feel like a repeat.",
+  repurpose: "Write a fresh new post from this old post: a new specific angle, a new hook, new concrete details and updated framing, so it does not feel like a repeat.",
 };
 
 const REWRITE_SYSTEM = [
   NAME_RULE,
-  "You edit the user's LinkedIn post following the task in the input.",
+  "You are an expert LinkedIn editor. Edit the user's LinkedIn post following the task in the input.",
+  "The task wins over the playbook when they conflict: for proofread, format and emoji change nothing beyond what the task asks.",
   LANGUAGE_RULE,
-  STYLE_RULE,
+  POST_PLAYBOOK,
   FACTS_RULE,
   "Return a JSON object with keys: text (the full new post, without hashtags), hashtags (3 to 5), note (one short sentence in Arabic on what you changed).",
-].join(" ");
+].join("\n");
 
 export interface Rewrite {
   text: string;
@@ -307,7 +403,7 @@ export async function rewritePost(action: RewriteAction, text: string, lang: Con
   const input = {
     profile: profileBlock(profile, settings, strategy),
     task: ACTION_TASK[action],
-    tone: action === "tone" ? tone : undefined,
+    tone: action === "tone" ? TONE_DIRECTION[tone] : undefined,
     post_lang: action === "translate" ? (lang === "ar" ? "translate to English" : "translate to Arabic") : lang,
     post: text,
   };
@@ -322,7 +418,8 @@ const HOOKS_SYSTEM = [
   "You write scroll-stopping first lines for LinkedIn posts.",
   LANGUAGE_RULE,
   FACTS_RULE,
-  "Given the post, write 5 alternative hooks (the first one or two lines, under 200 characters each), each using a different technique: a bold claim, a surprising number or result (placeholder if not given), a question, a short story opening, a contrarian take.",
+  "Given the post, write 5 alternative hooks (the first one or two lines, under 200 characters each, line 1 at most 12 words), each specific to this post's real content and each using a different technique: a bold claim, a concrete result or number from the post, a sharp question that is not yes or no, a short story opening inside a real moment, a contrarian take.",
+  "Never use clichés or generic openers that could fit any post.",
   "Write them in the post's language. Return a JSON object with key hooks: an array of objects with text and technique (technique in Arabic, two or three words).",
 ].join(" ");
 
@@ -355,8 +452,8 @@ export interface PostReview {
 
 const REVIEW_SYSTEM = [
   "You are a strict LinkedIn content editor. Review the post in the input for the user's goals and audience.",
-  "Score from 0 to 10: hook (does the first line stop the scroll), clarity (easy to read on a phone), value (useful, specific, credible), cta (clear next step or question). score is the overall score from 0 to 100.",
-  "Write verdict (one sentence), strengths (up to 3) and fixes (up to 5 concrete, actionable fixes) in natural Jordanian-flavored Arabic.",
+  "Score from 0 to 10: hook (does the first line stop the scroll and is it specific), clarity (easy to read on a phone, clean structure), value (useful, specific, concrete details in every paragraph, real depth, credible), cta (clear takeaway and a specific question or next step). score is the overall score from 0 to 100. Be strict: a generic post without concrete details never scores above 60.",
+  "Write verdict (one sentence), strengths (up to 3) and fixes (up to 5 concrete, actionable fixes that quote the weak line and say what to write instead) in natural Levantine-flavored Arabic.",
   "Return a JSON object with keys: score, hook, clarity, value, cta, verdict, strengths, fixes.",
 ].join(" ");
 
@@ -391,17 +488,25 @@ export async function carouselOutline(text: string, lang: ContentLang, cfg: AiCo
   return slides;
 }
 
-const ART_SYSTEM = [
-  "You are an award-winning art director who designs scroll-stopping LinkedIn post images.",
-  "Read the post and the brief in the input. Pick ONE strong visual concept that makes the post's core message instantly clear and makes people stop scrolling. Avoid clichés such as handshakes, light bulbs, puzzle pieces, generic laptops and stock-photo smiles.",
-  "Write a detailed image prompt in English with these parts in order: the concept in one sentence; the main subject and what it is doing; composition and framing for the given aspect ratio (where the subject sits, what is in the foreground and background, where the empty space is); setting and props; lighting; color palette (use the brand colors when given); medium and rendering details matching the style; mood.",
-  "Never include real or famous people, company logos, trademarks, watermarks or UI screenshots of real products. People, if any, are anonymous and diverse.",
-  "If overlay_text is given, design the layout around it: say exactly where the text goes, in a clean bold sans-serif, high contrast, large and perfectly spelled, written exactly as given, and that no other text appears. If overlay_text is empty, the image must contain no text, letters or numbers at all.",
-  "Also suggest headline: a very short punchy line (at most 6 words) in the post's language that could go on the image, and alt: a one-sentence image description in the post's language for accessibility.",
-  "Return a JSON object with keys prompt (under 1400 characters), headline, alt.",
-].join(" ");
+const VISUAL_BRIEF_SYSTEM = [
+  "You are a creative director for LinkedIn visuals. Read the post in the input and extract a visual brief before any image is designed.",
+  VISUAL_RULES,
+  "key_elements are things a camera or an illustrator can show: concrete objects, devices, screens, places, roles and actions that are named in the post or clearly part of its situation.",
+  "Write three different concepts. Each one is a single scene that a viewer understands in one second and that could only belong to this post. Then choose the concept that is the most specific to the post and the clearest.",
+  "Return a JSON object with keys (in English unless said otherwise): topic (what the post is about, a few words), core_message (one sentence), audience, key_elements (3 to 6 strings), setting (where this happens in real life), emotion (the feeling the image should give), concepts (3 objects with scene and link: how the scene shows the post's message), chosen (0, 1 or 2), headline (at most 6 words in post_lang, from the post's message), alt (one sentence in post_lang that describes the image).",
+].join("\n");
+
+const SCENE_SYSTEM = [
+  "You are an award-winning art director. Turn the visual brief into a precise scene description for an image model.",
+  VISUAL_RULES,
+  "Keep the chosen concept. Make the key elements it needs clearly visible and recognizable, in focus, large enough to read at phone size.",
+  "Follow the style and the aspect ratio. Use the brand colors when given.",
+  "If overlay_text is given, leave a clean, calm area for it and say exactly where. If overlay_text is empty, plan no text, letters or numbers anywhere, including on screens, papers and signs (show them blurred or as simple shapes).",
+  "Return a JSON object with keys (all in English): subject (the main subject and what it is doing, very concrete), must_show (2 to 5 elements from the brief that must be clearly visible), setting (place, props and background), composition (camera, framing for the aspect ratio, where the subject sits, foreground and background, where the empty space is), lighting, palette, mood, avoid (2 to 6 things that would make this image generic or wrong for this post).",
+].join("\n");
 
 export interface ArtBrief {
+  title: string;
   text: string;
   lang: ContentLang;
   style: string;
@@ -417,27 +522,119 @@ export interface ArtDirection {
   alt: string;
 }
 
+export interface VisualBrief {
+  topic: string;
+  coreMessage: string;
+  audience: string;
+  keyElements: string[];
+  setting: string;
+  emotion: string;
+  concept: string;
+  link: string;
+  headline: string;
+  alt: string;
+}
+
+export interface Scene {
+  subject: string;
+  mustShow: string[];
+  setting: string;
+  composition: string;
+  lighting: string;
+  palette: string;
+  mood: string;
+  avoid: string[];
+}
+
 const ASPECT_WORDS: Record<ImageAspect, string> = { portrait: "vertical 4:5 portrait", square: "square 1:1", landscape: "horizontal 1.91:1 landscape" };
 
-export async function artDirection(brief: ArtBrief, cfg: AiConfig): Promise<ArtDirection> {
-  const input = {
-    post: brief.text.slice(0, 2500),
-    post_lang: brief.lang,
+function visualBriefOf(data: unknown, fallbackTopic: string): VisualBrief {
+  const raw = asRecord(data);
+  const concepts = (Array.isArray(raw.concepts) ? raw.concepts : []).map((c) => {
+    const r = asRecord(c);
+    return { scene: asString(r.scene ?? r.idea, 600).trim(), link: asString(r.link, 400).trim() };
+  }).filter((c) => c.scene);
+  const index = Math.round(asNumber(raw.chosen, 0));
+  const pick = concepts[index >= 0 && index < concepts.length ? index : 0];
+  return {
+    topic: asString(raw.topic, 200).trim() || fallbackTopic,
+    coreMessage: asString(raw.core_message, 400).trim(),
+    audience: asString(raw.audience, 300).trim(),
+    keyElements: asStringList(raw.key_elements, 6),
+    setting: asString(raw.setting, 300).trim(),
+    emotion: asString(raw.emotion, 200).trim(),
+    concept: pick?.scene ?? "",
+    link: pick?.link ?? "",
+    headline: asString(raw.headline, 80).trim(),
+    alt: asString(raw.alt, 300).trim(),
+  };
+}
+
+function sceneOf(data: unknown): Scene {
+  const raw = asRecord(data);
+  const text = (k: string): string => asString(raw[k], 700).trim();
+  return {
+    subject: text("subject"),
+    mustShow: asStringList(raw.must_show, 5),
+    setting: text("setting"),
+    composition: text("composition"),
+    lighting: text("lighting"),
+    palette: text("palette"),
+    mood: text("mood"),
+    avoid: asStringList(raw.avoid, 6),
+  };
+}
+
+function line(label: string, value: string): string {
+  return value ? `${label}: ${value.replace(/\s+/g, " ").replace(/\.$/, "")}.` : "";
+}
+
+export function composeImagePrompt(brief: VisualBrief, scene: Scene): string {
+  return [
+    line("Image for a LinkedIn post about", brief.topic),
+    line("The image must make this message obvious", brief.coreMessage),
+    line("Concept", brief.concept),
+    line("Main subject", scene.subject),
+    line("Must be clearly visible", scene.mustShow.join("; ")),
+    line("Setting", scene.setting),
+    line("Composition", scene.composition),
+    line("Lighting", scene.lighting),
+    line("Colors", scene.palette),
+    line("Mood", scene.mood || brief.emotion),
+    line("Avoid", scene.avoid.join("; ")),
+  ].filter(Boolean).join("\n");
+}
+
+export async function artDirection(brief: ArtBrief, cfg: AiConfig, onScene?: () => void): Promise<ArtDirection> {
+  const post = [brief.title.trim(), brief.text.trim()].filter((x, i, all) => x && all.indexOf(x) === i).join("\n\n").slice(0, 3000);
+  const style = imageStyle(brief.style).direction;
+  const briefData = await chatJson(cfg, VISUAL_BRIEF_SYSTEM, JSON.stringify({ post, post_lang: brief.lang, author_role: brief.role, planned_style: style }));
+  const visual = visualBriefOf(briefData.data, brief.title.trim() || post.slice(0, 120));
+  onScene?.();
+  const sceneData = await chatJson(cfg, SCENE_SYSTEM, JSON.stringify({
+    visual_brief: {
+      topic: visual.topic,
+      core_message: visual.coreMessage,
+      audience: visual.audience,
+      key_elements: visual.keyElements,
+      setting: visual.setting,
+      emotion: visual.emotion,
+      chosen_concept: visual.concept,
+      why_it_fits: visual.link,
+    },
     author_role: brief.role,
-    style: imageStyle(brief.style).direction,
+    style,
     aspect_ratio: ASPECT_WORDS[brief.aspect],
     brand_colors: brief.brandColors,
     overlay_text: brief.overlay,
-  };
-  const { data } = await chatJson(cfg, ART_SYSTEM, JSON.stringify(input));
-  const raw = asRecord(data);
-  const prompt = asString(raw.prompt, 3000).trim();
-  if (!prompt) throw new Error("The model returned an empty prompt");
-  return { prompt, headline: asString(raw.headline, 80).trim(), alt: asString(raw.alt, 300).trim() };
+  }));
+  const scene = sceneOf(sceneData.data);
+  if (!scene.subject) throw new Error("The model returned an empty image scene");
+  return { prompt: composeImagePrompt(visual, scene), headline: visual.headline, alt: visual.alt };
 }
 
 export function finalImagePrompt(prompt: string, style: string, aspect: ImageAspect, overlay: string, brandColors: string): string {
-  const parts = [prompt.trim(), `Style: ${imageStyle(style).direction}.`, `Format: ${ASPECT_WORDS[aspect]}, made for a LinkedIn feed, sharp details, professional finish.`];
+  const parts = [prompt.trim(), `Style, applied to the subject above without replacing it: ${imageStyle(style).direction}.`, `Format: ${ASPECT_WORDS[aspect]}, made for a LinkedIn feed, the main subject clear at phone size, sharp details, professional finish.`];
   if (brandColors.trim()) parts.push(`Color palette: ${brandColors.trim()}.`);
   const text = overlay.trim().replace(/"/g, "'");
   parts.push(text ? `Render this exact text once, large, clean and perfectly spelled: "${text}". No other text, logos or watermarks.` : "No text, letters, numbers, logos or watermarks anywhere in the image.");

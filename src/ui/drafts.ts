@@ -1,4 +1,4 @@
-import { artDirection, defaultLength, finalImagePrompt, freeDates, generateImage, suggestIdeas, weekdayIndex, writePost, type PostBrief, type SeriesContext, type SeriesPlan, type Tone } from "../ai/content";
+import { artDirection, defaultLength, finalImagePrompt, freeDates, generateImage, suggestIdeas, weekdayIndex, writePost, type PostBrief, type SeriesContext, type SeriesPlan, type Tone, type WriteStage } from "../ai/content";
 import { isFatalError, mapLimit, type AiConfig } from "../ai/openai";
 import { draftTitle, newDraft, newId, withVersion, type ContentIdea, type ContentSeries, type Draft, type ImageMeta } from "../core/content";
 import { base64Blob, prepareImage, storeImage } from "../io/images";
@@ -68,7 +68,14 @@ export interface WriteOptions {
   details?: string;
   tone?: Tone;
   length?: PostBrief["length"];
+  progress?: Progress;
 }
+
+const STAGE_TEXT: Record<WriteStage, string> = {
+  plan: "تخطيط المنشور: القارئ والزاوية والتفاصيل…",
+  draft: "كتابة المسودة…",
+  edit: "مراجعة المحرر وتحسين المنشور…",
+};
 
 export async function writeDraft(ctx: Ctx, cfg: AiConfig, id: string, options: WriteOptions = {}): Promise<Draft | undefined> {
   const d = findDraft(ctx, id);
@@ -85,7 +92,8 @@ export async function writeDraft(ctx: Ctx, cfg: AiConfig, id: string, options: W
     details: [options.details?.trim() ?? "", d.status === "idea" ? d.notes : ""].filter(Boolean).join("\n"),
     series: seriesContext(ctx, d),
   };
-  const w = await writePost(brief, s.profile, s.content.posts, s.content.strategy, s.content.settings, cfg);
+  const progress = options.progress;
+  const w = await writePost(brief, s.profile, s.content.posts, s.content.strategy, s.content.settings, cfg, progress ? (stage) => progress(STAGE_TEXT[stage]) : undefined);
   updateDraft(ctx, id, (x) => {
     const next: Draft = { ...withVersion(x, w.text, "ai-write"), title: x.title || w.title, hashtags: x.hashtags.length > 0 ? x.hashtags : w.hashtags };
     if (x.status === "idea") next.status = x.scheduledFor ? "scheduled" : "draft";
@@ -132,16 +140,17 @@ export async function designImage(ctx: Ctx, cfg: AiConfig, id: string, options: 
   let prompt = options.prompt?.trim() ?? "";
   let headline = "";
   if (!prompt) {
-    progress?.("الذكاء الاصطناعي بيصمم فكرة الصورة…");
+    progress?.("قراءة المنشور واستخراج فكرة الصورة…");
     const art = await artDirection({
-      text: d.text.trim() || d.title,
+      title: d.title,
+      text: d.text,
       lang: d.lang,
       style: settings.imageStyle,
       aspect: settings.imageAspect,
       overlay: d.imageText,
       brandColors: settings.brandColors,
       role: s.profile.me.headline || s.profile.me.current_role,
-    }, cfg);
+    }, cfg, () => progress?.("تصميم المشهد وتفاصيل الصورة…"));
     prompt = art.prompt;
     headline = art.headline;
     updateDraft(ctx, id, (x) => ({ ...x, imagePrompt: prompt }), false);
@@ -270,7 +279,7 @@ export async function autopilot(ctx: Ctx, cfg: AiConfig, options: AutopilotOptio
   }
   const draft = addDraft(ctx, ideaDraft(idea));
   progress("كتابة المنشور…");
-  await writeDraft(ctx, cfg, draft.id);
+  await writeDraft(ctx, cfg, draft.id, { progress });
   let imageError = "";
   const current = findDraft(ctx, draft.id);
   if (options.image && current && (current.format === "image" || current.format === "text")) {
