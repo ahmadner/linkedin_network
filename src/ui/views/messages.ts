@@ -1,23 +1,33 @@
-import { inbox, MESSAGE_STATUS_LABEL, MESSAGE_STATUSES, statusCounts, type InboxItem, type MessageStatus } from "../../core/inbox";
+import { conversationIndex } from "../../core/conversations";
+import { conversations, MESSAGE_STATUS_LABEL, type Conversation, type ConversationStatus, type InboxItem } from "../../core/inbox";
 import { personKey } from "../../core/text";
 import type { Contact, Party } from "../../core/types";
 import { INBOX_COLUMNS } from "../../io/excel";
+import { analysisResult, runAnalysis, textDir, type AnalysisTarget } from "../analysis";
 import { avatar, badge, emptyState, exportLinks, type Ctx } from "../context";
 import { fmtNumber, h, replace } from "../dom";
 import { icon } from "../icons";
 import { detectSync, linkedinSync, redetectSync, runSync, stopSync, syncJobLine, syncRunning } from "../linkedinSync";
 import { openContact } from "./contacts";
 
-const PAGE_SIZE = 50;
+const LIST_STEP = 40;
+const THREAD_STEP = 60;
 
-type Filter = "" | MessageStatus;
+type Filter = "" | ConversationStatus;
 
-const STATUS_TONE: Record<MessageStatus, string> = { awaiting_me: "bad", awaiting_them: "warn", replied: "good", answered: "good" };
+const FILTERS: Array<[Filter, string]> = [["", "الكل"], ["awaiting_me", "بانتظار ردّك"], ["awaiting_them", "بانتظار ردّهم"]];
 
-const view = { q: "", filter: "" as Filter, page: 0 };
+const view = { q: "", filter: "" as Filter, selected: "", shown: LIST_STEP, older: 0, scrolled: "" };
+
+type Finder = (p: Party) => Contact | undefined;
 
 function stamp(iso: string): string {
   return iso.slice(0, 16).replace("T", " ");
+}
+
+function shortDate(iso: string): string {
+  const today = new Date().toISOString().slice(0, 10);
+  return iso.slice(0, 10) === today ? iso.slice(11, 16) : iso.slice(0, 10);
 }
 
 function syncCard(ctx: Ctx, rerender: () => void): HTMLElement {
@@ -33,7 +43,7 @@ function syncCard(ctx: Ctx, rerender: () => void): HTMLElement {
         h("strong", {}, state === "ready" ? "الإضافة شغّالة" : state === "missing" ? "الإضافة مش موصولة" : "بفحص الإضافة…"),
         h("span", { class: "muted small" }, state === "missing" ? "ركّب الإضافة من صفحة البيانات عشان تسحب الرسائل الجديدة." : last)),
     ),
-    h("div", { class: "row tight wrap inbox-sync-actions" },
+    h("div", { class: "row tight wrap" },
       state === "missing"
         ? [
           h("button", { type: "button", class: "secondary small", onclick: () => redetectSync(ctx, rerender) }, "جرّب مرة ثانية"),
@@ -48,7 +58,7 @@ function syncCard(ctx: Ctx, rerender: () => void): HTMLElement {
   );
 }
 
-function contactFinder(contacts: Contact[]): (p: Party) => Contact | undefined {
+function contactFinder(contacts: Contact[]): Finder {
   const bySlug = new Map<string, Contact>();
   const byName = new Map<string, Contact>();
   for (const c of contacts) {
@@ -59,107 +69,181 @@ function contactFinder(contacts: Contact[]): (p: Party) => Contact | undefined {
   return (p) => (p.slug ? bySlug.get(p.slug) : undefined) ?? byName.get(personKey(p.name));
 }
 
-function personLabel(ctx: Ctx, p: Party, find: (p: Party) => Contact | undefined): HTMLElement {
-  const name = p.name || p.slug || "—";
-  const contact = find(p);
-  if (contact) return h("button", { type: "button", class: "link inbox-name", dir: "auto", onclick: () => openContact(ctx, contact.id) }, name);
-  if (p.slug) return h("a", { class: "inbox-name", dir: "auto", href: `https://www.linkedin.com/in/${encodeURIComponent(p.slug)}`, target: "_blank", rel: "noopener noreferrer" }, name);
-  return h("strong", { class: "inbox-name", dir: "auto" }, name);
+function nameOf(p: Party): string {
+  return p.name || p.slug || "—";
 }
 
-function messageItem(ctx: Ctx, item: InboxItem, find: (p: Party) => Contact | undefined): HTMLElement {
-  const m = item.message;
-  const first = item.counterpart[0] ?? { name: "", slug: "" };
-  const people = item.counterpart.length > 0 ? item.counterpart : [first];
-  const text = h("p", { class: "inbox-text", dir: "auto" }, m.content || "—");
-  const long = m.content.length > 420 || m.content.split("\n").length > 6;
-  return h("li", { class: `inbox-item ${m.outgoing ? "out" : "in"} ${item.status}` },
-    h("div", { class: "inbox-head" },
-      h("span", { class: "person" }, avatar(ctx, { slug: first.slug, fullName: first.name || first.slug }),
-        h("span", { class: "person-text" },
-          h("span", { class: "inbox-people" }, people.flatMap((p, i) => (i === 0 ? [personLabel(ctx, p, find)] : ["، ", personLabel(ctx, p, find)]))),
-          h("span", { class: "sub" }, h("time", { datetime: m.at, dir: "ltr" }, stamp(m.at)), people.length > 1 ? ` · محادثة جماعية (${fmtNumber(people.length)})` : ""),
-        )),
-      h("span", { class: "inbox-badges" },
-        badge(m.outgoing ? "مرسلة" : "واردة", m.outgoing ? "mode-cold" : ""),
-        badge(MESSAGE_STATUS_LABEL[item.status], STATUS_TONE[item.status]),
+function title(conv: Conversation): string {
+  return conv.people.length > 0 ? conv.people.map(nameOf).join("، ") : "—";
+}
+
+function face(ctx: Ctx, conv: Conversation, size: "small" | "large" = "small"): HTMLElement {
+  const p = conv.people[0] ?? { name: "", slug: "" };
+  return avatar(ctx, { slug: p.slug, fullName: nameOf(p) }, size);
+}
+
+function conversationRow(ctx: Ctx, conv: Conversation, rerender: () => void): HTMLElement {
+  const preview = conv.last.content.replace(/\s+/g, " ").trim() || "—";
+  const active = conv.key === view.selected;
+  return h("li", {},
+    h("button", {
+      type: "button",
+      class: `conv ${conv.status}${active ? " active" : ""}`,
+      "aria-current": active ? "true" : null,
+      onclick: () => {
+        view.selected = conv.key;
+        view.older = 0;
+        rerender();
+      },
+    },
+    face(ctx, conv),
+    h("span", { class: "conv-text" },
+      h("span", { class: "conv-top" },
+        h("strong", { class: "conv-name", dir: "auto" }, title(conv)),
+        h("time", { class: "conv-time", datetime: conv.last.at, dir: "ltr" }, shortDate(conv.last.at)),
       ),
-    ),
-    text,
-    long ? h("button", { type: "button", class: "link small inbox-more", "aria-expanded": "false", onclick: (e: Event) => {
-      const open = text.classList.toggle("open");
-      const button = e.currentTarget as HTMLButtonElement;
-      button.setAttribute("aria-expanded", String(open));
-      button.textContent = open ? "اعرض أقل" : "اعرض الرسالة كاملة";
-    } }, "اعرض الرسالة كاملة") : null,
-    item.thread ? h("a", { class: "small inbox-open", href: item.thread, target: "_blank", rel: "noopener noreferrer" }, icon("external"), "افتح المحادثة على LinkedIn") : null,
+      h("span", { class: "conv-bottom" },
+        h("span", { class: "conv-preview", dir: "auto" }, conv.last.outgoing ? `أنا: ${preview}` : preview),
+        conv.pending > 0
+          ? h("span", { class: "nav-count hot", title: "رسائل بانتظار ردّك", "aria-label": `${fmtNumber(conv.pending)} بانتظار ردّك` }, fmtNumber(conv.pending))
+          : h("span", { class: "conv-state" }, MESSAGE_STATUS_LABEL.awaiting_them),
+      ),
+    )),
   );
 }
 
-function matches(item: InboxItem, needle: string): boolean {
-  if (view.filter && item.status !== view.filter) return false;
-  return !needle || item.search.includes(needle);
+function analysisTarget(ctx: Ctx, conv: Conversation, find: Finder): AnalysisTarget {
+  const contact = conv.people.length === 1 ? find(conv.people[0]!) ?? null : null;
+  if (contact) return { key: contact.id, partner: contact, contact, history: conversationIndex(ctx.store.state.dataset.messages).of(contact) };
+  const names = conv.people.map(nameOf);
+  return {
+    key: `conversation:${conv.key}`.slice(0, 300),
+    partner: { greetingName: names.length === 1 ? names[0]!.split(/\s+/)[0] ?? "" : names.join("، "), positionPrimary: "", positionClean: "", companyClean: "" },
+    contact: null,
+    history: conv.items.map((i) => i.message),
+  };
+}
+
+function bubbleMeta(item: InboxItem): string {
+  const time = item.message.at.slice(11, 16);
+  if (item.status === "answered") return `${time} · ${MESSAGE_STATUS_LABEL.answered} ✓✓`;
+  if (item.status === "awaiting_them") return `${time} · ${MESSAGE_STATUS_LABEL.awaiting_them} ✓`;
+  if (item.status === "awaiting_me") return `${time} · ${MESSAGE_STATUS_LABEL.awaiting_me}`;
+  return time;
+}
+
+function chatThread(conv: Conversation, rerender: () => void): HTMLElement {
+  const group = conv.people.length > 1;
+  const shown = Math.min(conv.items.length, THREAD_STEP * (view.older + 1));
+  const rows: HTMLElement[] = [];
+  let day = "";
+  for (const item of conv.items.slice(-shown)) {
+    const m = item.message;
+    const date = m.at.slice(0, 10);
+    if (date !== day) {
+      day = date;
+      rows.push(h("li", { class: "chat-day" }, h("span", { dir: "ltr" }, date)));
+    }
+    rows.push(h("li", { class: `bubble ${m.outgoing ? "out" : "in"} ${item.status}` },
+      group && !m.outgoing ? h("span", { class: "bubble-from", dir: "auto" }, nameOf(m.from)) : null,
+      h("span", { class: "bubble-text", dir: textDir(m.content) }, m.content || "—"),
+      h("span", { class: "bubble-meta" }, bubbleMeta(item)),
+    ));
+  }
+  return h("div", { class: "chat-body", tabindex: 0, role: "region", "aria-label": `المحادثة مع ${title(conv)}` },
+    shown < conv.items.length ? h("button", { type: "button", class: "secondary small chat-older", onclick: () => { view.older += 1; view.scrolled = "top"; rerender(); } }, `اعرض الأقدم (${fmtNumber(conv.items.length - shown)})`) : null,
+    h("ol", { class: "chat" }, rows),
+  );
+}
+
+function chatPanel(ctx: Ctx, conv: Conversation | undefined, find: Finder, rerender: () => void): HTMLElement {
+  if (!conv) return h("section", { class: "card chat-panel chat-empty" }, icon("message"), h("p", { class: "muted" }, "اختار محادثة من القائمة عشان تشوفها هون."));
+  const target = analysisTarget(ctx, conv, find);
+  const result = analysisResult(ctx, target);
+  const contact = target.contact;
+  const role = contact ? [contact.positionPrimary || contact.positionClean, contact.companyClean].filter(Boolean).join(" · ") : "";
+  return h("section", { class: "card chat-panel" },
+    h("header", { class: "chat-head" },
+      h("button", { type: "button", class: "secondary small chat-back", onclick: () => { view.selected = ""; rerender(); } }, icon("back"), "كل المحادثات"),
+      h("span", { class: "person" }, face(ctx, conv, "large"),
+        h("span", { class: "person-text" },
+          contact
+            ? h("button", { type: "button", class: "link inbox-name", dir: "auto", onclick: () => openContact(ctx, contact.id) }, title(conv))
+            : h("strong", { class: "inbox-name", dir: "auto" }, title(conv)),
+          h("span", { class: "sub", dir: "auto" }, role || `${fmtNumber(conv.items.length)} رسالة`),
+        )),
+      h("span", { class: "row tight wrap chat-actions" },
+        badge(MESSAGE_STATUS_LABEL[conv.status], conv.status === "awaiting_me" ? "bad" : "warn"),
+        conv.thread ? h("a", { class: "button secondary small", href: conv.thread, target: "_blank", rel: "noopener noreferrer" }, icon("external"), "افتح على LinkedIn") : null,
+        h("button", { type: "button", class: "small", onclick: () => void runAnalysis(ctx, target) }, icon("spark"), result ? "حلّل من جديد" : "حلّل بالذكاء الاصطناعي"),
+      ),
+    ),
+    result ? h("details", { class: "chat-analysis", open: true }, h("summary", {}, "تحليل المحادثة بالذكاء الاصطناعي"), result) : null,
+    chatThread(conv, rerender),
+  );
 }
 
 export function renderMessages(ctx: Ctx, rerender: () => void): HTMLElement {
   void detectSync(ctx, rerender);
   const sync = syncCard(ctx, rerender);
-  if (!ctx.store.hasData) return h("div", { class: "view" }, sync, emptyState("ما في بيانات لسا", "ارفع ملف الـ Export من LinkedIn أو اعمل مزامنة من الإضافة، وبعدها بتطلع كل رسائلك هون.", ["روح لصفحة البيانات", () => ctx.go("data")]));
+  if (!ctx.store.hasData) return h("div", { class: "view" }, sync, emptyState("ما في بيانات لسا", "ارفع ملف الـ Export من LinkedIn أو اعمل مزامنة من الإضافة، وبعدها بتطلع كل محادثاتك هون.", ["روح لصفحة البيانات", () => ctx.go("data")]));
 
-  const all = inbox(ctx.store.state.dataset.messages);
-  const counts = statusCounts(all);
+  const all = conversations(ctx.store.state.dataset.messages);
   const find = contactFinder(ctx.store.analysis.contacts);
-  const host = h("div", { class: "inbox-host" });
+  const counts: Record<Filter, number> = { "": all.length, awaiting_me: 0, awaiting_them: 0 };
+  for (const c of all) counts[c.status] += 1;
+  const selected = all.find((c) => c.key === view.selected);
+  if (!selected) view.selected = "";
+
+  const listHost = h("ul", { class: "conv-list" });
   const summary = h("p", { class: "muted small", "aria-live": "polite" });
-  let list: InboxItem[] = [];
+  let filtered: Conversation[] = [];
 
   const draw = (): void => {
     const needle = view.q.trim().toLowerCase();
-    list = all.filter((item) => matches(item, needle));
-    const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
-    view.page = Math.min(view.page, pages - 1);
-    const rows = list.slice(view.page * PAGE_SIZE, (view.page + 1) * PAGE_SIZE);
-    summary.textContent = list.length === all.length ? `${fmtNumber(all.length)} رسالة` : `${fmtNumber(list.length)} من ${fmtNumber(all.length)} رسالة`;
-    if (list.length === 0) {
-      replace(host, h("div", { class: "empty-line" }, h("p", {}, all.length === 0 ? "ما في رسائل لسا. اعمل مزامنة أو ارفع ملف الـ Export." : "ما في رسائل بهالبحث أو الحالة.")));
+    filtered = all.filter((c) => (!view.filter || c.status === view.filter) && (!needle || c.search.includes(needle)));
+    summary.textContent = filtered.length === all.length ? `${fmtNumber(all.length)} محادثة` : `${fmtNumber(filtered.length)} من ${fmtNumber(all.length)} محادثة`;
+    if (filtered.length === 0) {
+      replace(listHost, h("li", { class: "empty-line" }, h("p", {}, all.length === 0 ? "ما في رسائل لسا. اعمل مزامنة أو ارفع ملف الـ Export." : "ما في محادثات بهالبحث أو الحالة.")));
       return;
     }
-    const turn = (step: number) => (): void => {
-      view.page += step;
-      draw();
-      host.scrollIntoView({ block: "start" });
-    };
-    replace(host,
-      h("ol", { class: "inbox" }, rows.map((item) => messageItem(ctx, item, find))),
-      pages > 1 ? h("nav", { class: "pager", "aria-label": "الصفحات" },
-        h("button", { type: "button", class: "secondary small", disabled: view.page === 0, onclick: turn(-1) }, "السابق"),
-        h("span", {}, `صفحة ${fmtNumber(view.page + 1)} من ${fmtNumber(pages)}`),
-        h("button", { type: "button", class: "secondary small", disabled: view.page >= pages - 1, onclick: turn(1) }, "التالي"),
-      ) : null,
+    replace(listHost,
+      filtered.slice(0, view.shown).map((c) => conversationRow(ctx, c, rerender)),
+      filtered.length > view.shown ? h("li", {}, h("button", { type: "button", class: "secondary small conv-more", onclick: () => { view.shown += LIST_STEP; draw(); } }, `اعرض أكثر (${fmtNumber(filtered.length - view.shown)})`)) : null,
     );
   };
 
-  const search = h("input", { type: "search", placeholder: "ابحث بالاسم أو نص الرسالة", value: view.q, "aria-label": "بحث بالرسائل" });
+  const search = h("input", { type: "search", placeholder: "ابحث بالاسم أو نص الرسائل", value: view.q, "aria-label": "بحث بالمحادثات" });
   search.addEventListener("input", () => {
     view.q = search.value;
-    view.page = 0;
+    view.shown = LIST_STEP;
     draw();
   });
 
-  const filters: Array<[Filter, string, number]> = [["", "الكل", all.length], ...MESSAGE_STATUSES.map((s): [Filter, string, number] => [s, MESSAGE_STATUS_LABEL[s], counts[s]])];
   draw();
+  if (!selected) view.scrolled = "";
+  else if (view.scrolled !== selected.key) {
+    const toTop = view.scrolled === "top";
+    view.scrolled = selected.key;
+    requestAnimationFrame(() => {
+      const body = document.querySelector<HTMLElement>(".chat-body");
+      if (body) body.scrollTop = toTop ? 0 : body.scrollHeight;
+      if (!toTop && matchMedia("(max-width: 900px)").matches) document.querySelector(".chat-panel")?.scrollIntoView({ block: "start" });
+    });
+  }
+
   return h("div", { class: "view" },
     sync,
-    h("div", { class: "presets", role: "group", "aria-label": "حالة الرسالة" }, filters.map(([id, label, n]) =>
-      h("button", { type: "button", "aria-pressed": String(view.filter === id), class: id === "awaiting_me" && n > 0 ? "hot" : "", onclick: () => { view.filter = id; view.page = 0; rerender(); } },
-        label, h("span", { class: "preset-count" }, fmtNumber(n))))),
-    h("section", { class: "card" },
-      h("div", { class: "toolbar" },
+    h("div", { class: selected ? "inbox-layout open" : "inbox-layout" },
+      h("section", { class: "card conv-pane" },
+        h("div", { class: "presets", role: "group", "aria-label": "حالة المحادثة" }, FILTERS.map(([id, label]) =>
+          h("button", { type: "button", "aria-pressed": String(view.filter === id), class: id === "awaiting_me" && counts[id] > 0 ? "hot" : "", onclick: () => { view.filter = id; view.shown = LIST_STEP; rerender(); } },
+            label, h("span", { class: "preset-count" }, fmtNumber(counts[id]))))),
         h("span", { class: "search-box" }, icon("search"), search),
-        exportLinks(ctx, "messages", INBOX_COLUMNS, () => list),
+        h("div", { class: "row tight wrap conv-tools" }, summary, exportLinks(ctx, "messages", INBOX_COLUMNS, () => filtered.flatMap((c) => c.items))),
+        listHost,
       ),
-      summary,
-      host,
+      chatPanel(ctx, selected, find, rerender),
     ),
   );
 }

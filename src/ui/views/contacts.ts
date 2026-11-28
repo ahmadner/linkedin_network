@@ -1,6 +1,6 @@
-import { analyzeConversation, generateMessages, generateTemplate, templateKey } from "../../ai/features";
+import { generateMessages, generateTemplate, templateKey } from "../../ai/features";
 import { FUNCTION_LABELS, INDUSTRY_LABELS } from "../../core/classify";
-import { isStale, STAGE_LABEL, STAGES, TONE_LABEL } from "../../core/conversation";
+import { STAGE_LABEL, STAGES } from "../../core/conversation";
 import { conversationIndex } from "../../core/conversations";
 import { todayIso } from "../../core/dates";
 import { MAX_BATCH, MESSAGE_SOURCES, messageFor, type MessageSource } from "../../core/outreach";
@@ -10,8 +10,9 @@ import { TEMPLATE_IDS, TEMPLATE_LABEL, TEMPLATES_WITH_JOB, TemplateBuilder, type
 import type { Contact, ConversationAnalysis, MessageSet, StoredMessage, Tracking } from "../../core/types";
 import { CONTACT_EXPORT_COLUMNS } from "../../io/excel";
 import { ago, avatar, awaitingMe, badge, exportLinks, linkedinLinks, MODE_AR, noData, runAi, STATUS_AR, statusBadge, STATUSES, type Ctx } from "../context";
+import { analysisSection, messageBlock, textDir } from "../analysis";
 import { confirmDialog } from "../confirm";
-import { copyText, field, fmtNumber, h, replace, select, tabList, tabPanel, textArea, textInput } from "../dom";
+import { field, fmtNumber, h, replace, select, tabList, tabPanel, textArea, textInput } from "../dom";
 import { icon } from "../icons";
 import { queueMessages } from "./outreach";
 
@@ -159,25 +160,6 @@ function conversationOf(ctx: Ctx, c: Contact): StoredMessage[] {
   return conversationIndex(ctx.store.state.dataset.messages).of(c);
 }
 
-function textDir(text: string): string {
-  return /[؀-ۿ]/.test(text) ? "rtl" : "ltr";
-}
-
-function messageBlock(title: string, text: string, limit?: number, queue?: () => void): HTMLElement {
-  const copy = h("button", { type: "button", class: "link" }, "نسخ");
-  copy.addEventListener("click", () => void copyText(text).then((ok) => (copy.textContent = ok ? "انّسخ ✓" : "ما زبط النسخ")));
-  const over = limit !== undefined && text.length > limit;
-  return h("div", { class: "msg" },
-    h("div", { class: "msg-head" },
-      h("strong", {}, title),
-      h("span", { class: over ? "count over" : "count", title: over ? "أطول من الحد المسموح" : "" }, limit ? `${text.length}/${limit}` : `${text.length}`),
-      copy,
-      queue && text.trim() ? h("button", { type: "button", class: "secondary small", onclick: queue }, icon("send"), "جهّز للإرسال") : null,
-    ),
-    h("pre", { dir: textDir(text) }, text),
-  );
-}
-
 function section(title: string, ...children: Array<Node | string | null | false>): HTMLElement {
   return h("section", { class: "panel-section" }, h("h3", {}, title), ...children);
 }
@@ -208,35 +190,6 @@ function templateSection(ctx: Ctx, c: Contact, rerender: () => void): HTMLElemen
     h("p", { class: "muted small" }, showAi && ai ? `مكتوبة بـ AI (${ai.model})` : "مكتوبة من القواعد، من بروفايلك وبروفايل الشخص"),
     messageBlock("عربي", text.ar, limit, () => queueMessages(ctx, [{ contact: c, text: text.ar }])),
     messageBlock("English", text.en, limit, () => queueMessages(ctx, [{ contact: c, text: text.en }])),
-  );
-}
-
-const STAGE_TONE: Record<string, string> = { opportunity: "good", waiting_me: "bad", gone_cold: "warn", closed: "" };
-
-function analysisSection(ctx: Ctx, c: Contact, history: StoredMessage[]): HTMLElement {
-  const result = ctx.store.state.ai.analyses[c.id];
-  const run = async (): Promise<void> => {
-    const out = await runAi(ctx, "تحليل المحادثة…", (cfg) => analyzeConversation(c, ctx.store.state.profile, history, cfg, todayIso()));
-    if (!out) return;
-    ctx.store.update((s) => (s.ai.analyses[c.id] = out), { recompute: false });
-  };
-  const limit = ctx.store.state.profile.messaging.message_char_limit;
-  return section("تحليل المحادثة بالذكاء الاصطناعي",
-    h("div", { class: "row tight wrap" },
-      h("button", { type: "button", class: "secondary small", onclick: () => void run() }, icon("spark"), result ? "حلّل من جديد" : "حلّل المحادثة"),
-      result && isStale(result, history) ? badge("في رسائل جديدة بعد التحليل", "warn") : null,
-    ),
-    result ? h("div", { class: "analysis" },
-      h("div", { class: "row tight wrap" },
-        badge(STAGE_LABEL[result.stage], STAGE_TONE[result.stage] ?? ""),
-        badge(`النبرة: ${TONE_LABEL[result.tone]}`, result.tone === "positive" ? "good" : result.tone === "negative" ? "bad" : ""),
-        h("span", { class: "muted small" }, `${result.generatedAt.slice(0, 10)} · ${result.model}`),
-      ),
-      result.summary_ar ? h("p", {}, result.summary_ar) : null,
-      result.next_step_ar ? h("p", { class: "advice" }, h("strong", {}, "الخطوة الجاية: "), result.next_step_ar) : null,
-      result.reply_ar ? messageBlock("رد مقترح - عربي", result.reply_ar, limit, () => queueMessages(ctx, [{ contact: c, text: result.reply_ar }])) : null,
-      result.reply_en ? messageBlock("Suggested reply - English", result.reply_en, limit, () => queueMessages(ctx, [{ contact: c, text: result.reply_en }])) : null,
-    ) : h("p", { class: "muted small" }, `بيقرأ آخر ${Math.min(history.length, 20)} رسالة، وبيحكيلك وين وقفتوا وشو الخطوة الجاية، وبيقترح رد جاهز.`),
   );
 }
 
@@ -351,7 +304,7 @@ function drawer(ctx: Ctx, c: Contact, rerender: () => void): HTMLElement {
     switch (view.tab) {
       case "thread": return history.length === 0
         ? [h("p", { class: "empty-line" }, "ما في رسائل بينكم لسا. شوف تبويب الرسائل لتبلش.")]
-        : [history.length > THREAD_SIZE ? h("p", { class: "muted small" }, `آخر ${THREAD_SIZE} رسالة من ${fmtNumber(history.length)}`) : null, threadList(history.slice(-THREAD_SIZE), c.fullName), analysisSection(ctx, c, history)];
+        : [history.length > THREAD_SIZE ? h("p", { class: "muted small" }, `آخر ${THREAD_SIZE} رسالة من ${fmtNumber(history.length)}`) : null, threadList(history.slice(-THREAD_SIZE), c.fullName), analysisSection(ctx, { key: c.id, partner: c, contact: c, history })];
       case "messages": return messagesTab(ctx, c, rerender);
       case "track": return trackTab(ctx, c);
       default: return overviewTab(ctx, c, history);
