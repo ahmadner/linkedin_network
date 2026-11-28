@@ -27,8 +27,11 @@ if (extensionId(target.key) !== target.id) {
 }
 
 const toolUrl = mode === "production" && process.env.TOOL_URL ? process.env.TOOL_URL : target.toolUrl;
-const origins = [...new Set([new URL(toolUrl).origin, ...target.origins])];
-const matches = origins.map((origin) => `${new URL(origin).protocol}//${new URL(origin).hostname}/*`);
+const tool = new URL(toolUrl);
+const toolPath = tool.pathname.endsWith("/") ? tool.pathname : `${tool.pathname}/`;
+const origins = [...new Set([tool.origin, ...target.origins])];
+const prefixes = [...new Set([`${tool.origin}${toolPath}`, ...target.origins.map((origin) => `${new URL(origin).origin}/`)])];
+const matches = [`${tool.protocol}//${tool.hostname}${toolPath}*`, ...target.origins.map((origin) => `${new URL(origin).protocol}//${new URL(origin).hostname}/*`)];
 const out = join(root, "dist-extension", mode);
 
 await rm(out, { recursive: true, force: true });
@@ -42,7 +45,7 @@ await build({
   target: "chrome116",
   minify: true,
   legalComments: "none",
-  define: { __TOOL_ORIGINS__: JSON.stringify(origins), __TOOL_URL__: JSON.stringify(toolUrl) },
+  define: { __TOOL_ORIGINS__: JSON.stringify(origins), __TOOL_PREFIXES__: JSON.stringify(prefixes), __TOOL_URL__: JSON.stringify(toolUrl) },
 });
 
 const manifest = JSON.parse(await readFile(join(source, "manifest.json"), "utf8"));

@@ -9,6 +9,7 @@ import { cancelPosts, POSTS_ALARM, runPostsJob, startPosts } from "./postsSync";
 import { closeTabs, FEED_URL, isFatal, linkedinTab as sharedLinkedinTab, openTab as openSharedTab, pageRequest, resourceUrls, sleep, StopError } from "./tab";
 
 declare const __TOOL_ORIGINS__: string[];
+declare const __TOOL_PREFIXES__: string[];
 
 const ALARM = "lnt-resume";
 const MESSAGING_URL = "https://www.linkedin.com/messaging/";
@@ -351,7 +352,8 @@ function respond(request: Request, sendResponse: (r: unknown) => void): true {
 }
 
 chrome.runtime.onMessageExternal.addListener((request: Request, sender, sendResponse) => {
-  if (!sender.origin || !__TOOL_ORIGINS__.includes(sender.origin)) {
+  const url = sender.url ?? "";
+  if (!sender.origin || !__TOOL_ORIGINS__.includes(sender.origin) || !__TOOL_PREFIXES__.some((prefix) => url.startsWith(prefix))) {
     sendResponse({ ok: false, error: "This page is not allowed to use the extension" } satisfies ErrorResponse);
     return false;
   }
