@@ -121,6 +121,7 @@ type Browser = "chrome" | "firefox";
 
 const BROWSERS: Browser[] = IS_FIREFOX ? ["firefox", "chrome"] : ["chrome", "firefox"];
 const BROWSER_NAME: Record<Browser, string> = { chrome: "Chrome", firefox: "Firefox" };
+const FIREFOX_FOLDER = "./linkedin-network-extension-firefox.zip";
 const DOWNLOADS: Record<Browser, string> = { chrome: "./linkedin-network-extension.zip", firefox: "./linkedin-network-extension.xpi" };
 
 function code(text: string): HTMLElement {
@@ -150,7 +151,7 @@ function installSteps(browser: Browser): HTMLElement {
   if (firefoxSigned) {
     return h("div", {},
       h("ol", {},
-        h("li", {}, "اضغط تحميل لـ Firefox من فايرفوكس نفسه."),
+        h("li", {}, "اضغط تحميل لـ Firefox (.xpi) من فايرفوكس نفسه."),
         h("li", {}, "فايرفوكس بيسألك إذا بدك تسمح للموقع يركّب إضافة. اضغط Continue to Installation، وبعدها Add."),
         permissions,
         signedIn,
@@ -169,8 +170,8 @@ function installSteps(browser: Browser): HTMLElement {
     ),
     h("h3", {}, "تركيب مؤقت (فايرفوكس العادي)"),
     h("ol", {},
-      h("li", {}, "نزّل ملف الـ .xpi."),
-      h("li", {}, "افتح ", code("about:debugging#/runtime/this-firefox"), " واضغط Load Temporary Add-on واختار الملف."),
+      h("li", {}, "نزّل ملفات Firefox (zip) وفك الضغط عنها بمجلد ثابت، أو نزّل ملف الـ .xpi."),
+      h("li", {}, "افتح ", code("about:debugging#/runtime/this-firefox"), " واضغط Load Temporary Add-on، واختار ", code("manifest.json"), " من المجلد أو ملف الـ .xpi."),
       h("li", {}, "بيضل شغّال لحد ما تسكّر فايرفوكس، وبعدها بتعيد الخطوة 2."),
     ),
     h("p", { class: "muted small" }, "بدها Firefox 140 أو أحدث. فايرفوكس العادي ما بيقبل تركيب دائم لإضافة مش موقّعة. لما تنقلب الإضافة المؤقتة، البيانات اللي نقلتها للموقع بتضل، بس الإضافة بتنسى عدّاد الإرسال اليومي، فانتبه ما تتعدى الحد بنفس اليوم."),
@@ -211,7 +212,10 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
     h("div", { class: "row" },
       h("button", { type: "button", disabled: !installed || running, onclick: () => void start() }, "مزامنة الآن"),
       running ? h("button", { type: "button", class: "secondary", onclick: () => void cancelSync().then(rerender) }, "إيقاف") : null,
-      ...(LOCAL_TOOL ? [] : BROWSERS.map((b) => h("a", { class: "button secondary", href: DOWNLOADS[b], download: !(b === "firefox" && firefoxSigned) }, icon("download"), `تحميل لـ ${BROWSER_NAME[b]}`))),
+      ...(LOCAL_TOOL ? [] : BROWSERS.flatMap((b) => [
+        h("a", { class: "button secondary", href: DOWNLOADS[b], download: !(b === "firefox" && firefoxSigned) }, icon("download"), b === "firefox" ? "تحميل لـ Firefox (.xpi)" : `تحميل لـ ${BROWSER_NAME[b]}`),
+        b === "firefox" ? h("a", { class: "button secondary", href: FIREFOX_FOLDER, download: true }, icon("download"), "ملفات Firefox (zip)") : null,
+      ])),
     ),
     jobLine(lastJob),
     ...BROWSERS.map((b, i) => h("details", { class: "help", open: !installed && i === 0 },

@@ -34,7 +34,7 @@ const origins = [...new Set([tool.origin, ...target.origins])];
 const prefixes = [...new Set([`${tool.origin}${toolPath}`, ...target.origins.map((origin) => `${new URL(origin).origin}/`)])];
 const matches = [`${tool.protocol}//${tool.hostname}${toolPath}*`, ...target.origins.map((origin) => `${new URL(origin).protocol}//${new URL(origin).hostname}/*`)];
 const FILES = { chrome: ["manifest.json", "background.js", "popup.js", "popup.html"], firefox: ["manifest.json", "background.js", "popup.js", "popup.html", "bridge.js"] };
-const ZIPS = { chrome: "linkedin-network-extension.zip", firefox: "linkedin-network-extension.xpi" };
+const ZIPS = { chrome: ["linkedin-network-extension.zip"], firefox: ["linkedin-network-extension.xpi", "linkedin-network-extension-firefox.zip"] };
 const base = JSON.parse(await readFile(join(source, "manifest.json"), "utf8"));
 const firefoxBuild = process.env.FIREFOX_BUILD ?? "";
 if (firefoxBuild && !/^\d{1,9}$/.test(firefoxBuild)) {
@@ -97,14 +97,15 @@ for (const browser of ["chrome", "firefox"]) {
   if (zipTarget) {
     const files = {};
     for (const name of FILES[browser]) files[name] = new Uint8Array(await readFile(join(out, name)));
+    const archive = zipSync(files, { level: 9 });
     await mkdir(zipDir, { recursive: true });
-    await writeFile(join(zipDir, ZIPS[browser]), zipSync(files, { level: 9 }));
+    for (const name of ZIPS[browser]) await writeFile(join(zipDir, name), archive);
   }
-  built.push(`${browser} -> ${out.slice(root.length)}${zipTarget ? ` + ${zipTarget}/${ZIPS[browser]}` : ""}`);
+  built.push(`${browser} -> ${out.slice(root.length)}${zipTarget ? ` + ${ZIPS[browser].map((name) => `${zipTarget}/${name}`).join(", ")}` : ""}`);
 }
 
 if (zipTarget) {
-  const info = { version: base.version, chrome: { file: ZIPS.chrome }, firefox: { file: ZIPS.firefox, version: firefoxVersion, signed: false } };
+  const info = { version: base.version, chrome: { file: ZIPS.chrome[0] }, firefox: { file: ZIPS.firefox[0], folder: ZIPS.firefox[1], version: firefoxVersion, signed: false } };
   await writeFile(join(zipDir, "extension.json"), `${JSON.stringify(info, null, 2)}\n`);
 }
 

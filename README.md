@@ -38,11 +38,11 @@
 3. تأكد إنك مسجّل دخول على linkedin.com بنفس المتصفح
 4. ارجع للموقع واضغط **مزامنة الآن**
 
-**Firefox** (140 أو أحدث، أو 142 على أندرويد): من صفحة **البيانات** اضغط **تحميل لـ Firefox** وبتنزل `linkedin-network-extension.xpi`.
+**Firefox** (140 أو أحدث، أو 142 على أندرويد): من صفحة **البيانات** اضغط **تحميل لـ Firefox (.xpi)** وبتنزل `linkedin-network-extension.xpi`، أو **ملفات Firefox (zip)** وبتنزل `linkedin-network-extension-firefox.zip` فيها ملفات الإضافة نفسها.
 - **إذا الملف موقّع من Mozilla:** اضغط الزر من فايرفوكس نفسه، ووافق على التركيب. التركيب دائم.
 - **إذا مش موقّع:**
   - على Firefox Developer Edition أو Nightly أو ESR: خلّي `xpinstall.signatures.required = false` بـ `about:config`، وبعدها من `about:addons` ← الترس ← **Install Add-on From File**. التركيب دائم.
-  - على فايرفوكس العادي: `about:debugging#/runtime/this-firefox` ← **Load Temporary Add-on**. بينشال لما تسكّر المتصفح.
+  - على فايرفوكس العادي: `about:debugging#/runtime/this-firefox` ← **Load Temporary Add-on**، واختار ملف الـ `.xpi` أو `manifest.json` من مجلد الـ zip بعد فك الضغط. بينشال لما تسكّر المتصفح.
 
 > فايرفوكس ما بيسمح لصفحة ويب تحكي مع إضافة مباشرة، فنسخة فايرفوكس فيها content script صغير على صفحة الأداة بس، بينقل الرسائل بين الصفحة والإضافة.
 

@@ -6,7 +6,10 @@ const info = JSON.parse(await readFile(file, "utf8"));
 if (action === "is-signed") process.exit(info.firefox?.signed === true ? 0 : 1);
 
 if (action === "signed") info.firefox.signed = true;
-else if (action === "copy-firefox" && from) info.firefox = JSON.parse(await readFile(from, "utf8")).firefox;
+else if (action === "copy-firefox" && from) {
+  const { version, signed } = JSON.parse(await readFile(from, "utf8")).firefox;
+  info.firefox = { ...info.firefox, version, signed };
+}
 else {
   console.error(`usage: extension-info.mjs <file> signed | is-signed | copy-firefox <from>`);
   process.exit(2);
