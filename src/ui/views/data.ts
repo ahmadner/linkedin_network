@@ -14,6 +14,7 @@ import { IS_FIREFOX, LOCAL_TOOL } from "../../linkedin/bridge";
 import { badge, card, type Ctx } from "../context";
 import { confirmDialog } from "../confirm";
 import { append, download, fmtNumber, h, pickFiles } from "../dom";
+import { autoSyncControls } from "../autoSync";
 import { icon } from "../icons";
 import { detectSync, linkedinSync, runSync, stopSync, syncJobLine, syncRunning } from "../linkedinSync";
 
@@ -129,6 +130,7 @@ function extensionCard(ctx: Ctx, rerender: () => void): HTMLElement {
       : "ما في مزامنة لسا. أول مزامنة بتسحب كل شي، فالأفضل ترفع الـ Export أول."),
     h("label", { class: "check" }, messagesToggle, " اسحب الرسائل كمان (أبطأ)"),
     h("label", { class: "check" }, photosToggle, " حدّث بيانات وصور كل الأشخاص (بيمر على كل شبكتك، أبطأ)"),
+    autoSyncControls(ctx, rerender),
     h("div", { class: "row" },
       h("button", { type: "button", disabled: !installed || running, onclick: () => void start() }, "مزامنة الآن"),
       running ? h("button", { type: "button", class: "secondary", onclick: () => void stopSync(ctx, rerender) }, "إيقاف") : null,

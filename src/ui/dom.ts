@@ -158,6 +158,23 @@ export function select(options: Array<[string, string]>, value: string, onChange
   return el;
 }
 
+const PLAIN_INPUTS = new Set(["button", "checkbox", "color", "file", "radio", "range", "reset", "submit"]);
+
+export function isEditing(): boolean {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.isContentEditable || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return true;
+  return el instanceof HTMLInputElement && !PLAIN_INPUTS.has(el.type);
+}
+
+export function whenIdle(task: () => void): void {
+  if (!isEditing()) {
+    task();
+    return;
+  }
+  document.addEventListener("focusout", () => setTimeout(() => whenIdle(task), 0), { once: true });
+}
+
 export function fmtNumber(n: number): string {
   return n.toLocaleString("en-US");
 }

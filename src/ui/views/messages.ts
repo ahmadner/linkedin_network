@@ -7,6 +7,7 @@ import { analysisResult, runAnalysis, textDir, type AnalysisTarget } from "../an
 import { avatar, badge, emptyState, exportLinks, type Ctx } from "../context";
 import { fmtNumber, h, replace } from "../dom";
 import { icon } from "../icons";
+import { autoSyncStatus } from "../autoSync";
 import { detectSync, linkedinSync, redetectSync, runSync, stopSync, syncJobLine, syncRunning } from "../linkedinSync";
 import { openContact } from "./contacts";
 
@@ -41,7 +42,8 @@ function syncCard(ctx: Ctx, rerender: () => void): HTMLElement {
       h("span", { class: `status-dot ${state}` }),
       h("span", {},
         h("strong", {}, state === "ready" ? "الإضافة شغّالة" : state === "missing" ? "الإضافة مش موصولة" : "بفحص الإضافة…"),
-        h("span", { class: "muted small" }, state === "missing" ? "ركّب الإضافة من صفحة البيانات عشان تسحب الرسائل الجديدة." : last)),
+        h("span", { class: "muted small" }, state === "missing" ? "ركّب الإضافة من صفحة البيانات عشان تسحب الرسائل الجديدة." : last),
+        state === "ready" ? h("span", { class: linkedinSync.autoPaused ? "error-text small" : "muted small" }, autoSyncStatus(ctx)) : null),
     ),
     h("div", { class: "row tight wrap" },
       state === "missing"
